@@ -6,12 +6,14 @@ import type { FranchiseGroup, NormalisedEntry } from '@/lib/types'
 // ── Relation badge config ─────────────────────────────
 
 const RELATION_BADGES: Record<string, { label: string; className: string }> = {
-  SIDE_STORY: { label: 'SIDE STORY', className: 'bg-blue-500/15 text-blue-400 border border-blue-500/20' },
-  SUMMARY: { label: 'SUMMARY', className: 'bg-gray-500/15 text-gray-400 border border-gray-500/20' },
-  SPIN_OFF: { label: 'SPIN OFF', className: 'bg-orange-500/15 text-orange-400 border border-orange-500/20' },
-  PREQUEL: { label: 'PREQUEL', className: 'bg-purple-500/15 text-purple-400 border border-purple-500/20' },
-  ALTERNATIVE_VERSION: { label: 'ALT VERSION', className: 'bg-pink-500/15 text-pink-400 border border-pink-500/20' },
-  ALTERNATIVE_SETTING: { label: 'ALT SETTING', className: 'bg-pink-500/15 text-pink-400 border border-pink-500/20' },
+  side_story: { label: 'SIDE STORY', className: 'bg-blue-500/15 text-blue-400 border border-blue-500/20' },
+  summary: { label: 'SUMMARY', className: 'bg-gray-500/15 text-gray-400 border border-gray-500/20' },
+  spin_off: { label: 'SPIN OFF', className: 'bg-orange-500/15 text-orange-400 border border-orange-500/20' },
+  prequel: { label: 'PREQUEL', className: 'bg-purple-500/15 text-purple-400 border border-purple-500/20' },
+  alternative_version: { label: 'ALT VERSION', className: 'bg-pink-500/15 text-pink-400 border border-pink-500/20' },
+  alternative_setting: { label: 'ALT SETTING', className: 'bg-pink-500/15 text-pink-400 border border-pink-500/20' },
+  source: { label: 'SOURCE', className: 'bg-green-500/15 text-green-400 border border-green-500/20' },
+  compilation: { label: 'COMPILATION', className: 'bg-yellow-500/15 text-yellow-400 border border-yellow-500/20' },
 }
 
 const TYPE_COLORS: Record<string, string> = {

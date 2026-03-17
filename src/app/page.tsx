@@ -254,16 +254,21 @@ function StepItem({
 }
 
 export default function LandingPage() {
+  const [selectedPlatform, setSelectedPlatform] = useState<"ANILIST" | "MAL">("ANILIST");
   const [input, setInput] = useState("");
   const setUsername = useAnimeStore((s) => s.setUsername);
+  const setPlatform = useAnimeStore((s) => s.setPlatform);
   const router = useRouter();
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    const trimmed = input.trim();
-    if (!trimmed) return;
-    setUsername(trimmed);
-    router.push("/dashboard");
+    if (selectedPlatform === "ANILIST") {
+      const trimmed = input.trim();
+      if (!trimmed) return;
+      setUsername(trimmed);
+      setPlatform("ANILIST");
+      router.push("/dashboard");
+    }
   }
 
   return (
@@ -331,34 +336,98 @@ export default function LandingPage() {
             Track your main story progress. Never lose track of what's next.
           </p>
 
-          <form 
-            onSubmit={handleSubmit} 
-            className="animate-fade-up mt-12 opacity-0 [animation-delay:400ms]"
-          >
-            <div className="mx-auto flex w-full max-w-md items-center gap-2 rounded-full border bg-[var(--bg-surface)] p-2 pl-6 transition-all focus-within:border-[var(--accent)]"
-                 style={{ borderColor: 'var(--border)', boxShadow: 'var(--shadow-sm)' }}>
-              <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[var(--accent)] text-[10px] font-bold text-white">
-                A
-              </div>
-              <input
-                id="hero-input"
-                type="text"
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                placeholder="Enter your AniList username"
-                className="w-full bg-transparent text-sm text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]"
-              />
-              <button
-                type="submit"
-                className="shrink-0 rounded-full bg-[var(--accent)] px-6 py-2.5 text-xs font-bold text-white transition-all hover:bg-[var(--accent-hover)] active:scale-95 cursor-pointer"
-              >
-                → ORGANISE
-              </button>
+          <div className="animate-fade-up mt-12 opacity-0 [animation-delay:400ms]">
+            {/* Platform Selection Tabs */}
+            <div
+              style={{
+                display: "flex",
+                gap: "8px",
+                justifyContent: "center",
+                marginBottom: "24px",
+              }}
+            >
+              {(["ANILIST", "MAL"] as const).map((p) => (
+                <button
+                  key={p}
+                  onClick={() => setSelectedPlatform(p)}
+                  style={{
+                    padding: "10px 24px",
+                    borderRadius: "24px",
+                    fontSize: "13px",
+                    fontWeight: "600",
+                    border: "1px solid",
+                    cursor: "pointer",
+                    transition: "all 0.2s cubic-bezier(0.4, 0, 0.2, 1)",
+                    backgroundColor:
+                      selectedPlatform === p ? "var(--accent)" : "rgba(255,255,255,0.03)",
+                    borderColor:
+                      selectedPlatform === p ? "var(--accent)" : "var(--border)",
+                    color: selectedPlatform === p ? "#fff" : "var(--text-secondary)",
+                    boxShadow: selectedPlatform === p ? "0 4px 12px var(--accent-light)" : "none",
+                  }}
+                >
+                  {p === "ANILIST" ? "🟦 AniList" : "🔵 MyAnimeList"}
+                </button>
+              ))}
             </div>
-            <p className="mt-6 text-[10px] font-medium tracking-widest text-[var(--text-secondary)] opacity-60">
-              SUPPORTS ANILIST &bull; MAL COMING SOON &bull; NO ACCOUNT NEEDED
-            </p>
-          </form>
+
+            {selectedPlatform === "ANILIST" ? (
+              <form onSubmit={handleSubmit}>
+                <div
+                  className="mx-auto flex w-full max-w-md items-center gap-2 rounded-full border bg-[var(--bg-surface)] p-2 pl-6 transition-all focus-within:border-[var(--accent)]"
+                  style={{ borderColor: "var(--border)", boxShadow: "var(--shadow-sm)" }}
+                >
+                  <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[var(--accent)] text-[10px] font-bold text-white">
+                    A
+                  </div>
+                  <input
+                    id="hero-input"
+                    type="text"
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    placeholder="Enter your AniList username"
+                    className="w-full bg-transparent text-sm text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]"
+                  />
+                  <button
+                    type="submit"
+                    className="shrink-0 rounded-full bg-[var(--accent)] px-6 py-2.5 text-xs font-bold text-white transition-all hover:bg-[var(--accent-hover)] active:scale-95 cursor-pointer"
+                  >
+                    → ORGANISE
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <div style={{ textAlign: "center" }}>
+                <a
+                  href="/api/auth/mal/login"
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "12px",
+                    padding: "16px 36px",
+                    borderRadius: "50px",
+                    backgroundColor: "#2E51A2", // MAL blue
+                    color: "#fff",
+                    fontWeight: "700",
+                    fontSize: "15px",
+                    textDecoration: "none",
+                    transition: "all 0.2s cubic-bezier(0.4, 0, 0.2, 1)",
+                    boxShadow: "0 4px 15px rgba(46, 81, 162, 0.3)",
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.transform = "translateY(-2px)")}
+                  onMouseLeave={(e) => (e.currentTarget.style.transform = "translateY(0)")}
+                >
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="white">
+                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14H9V8h2v8zm4 0h-2V8h2v8z" />
+                  </svg>
+                  Connect MyAnimeList
+                </a>
+                <p className="mt-4 text-[11px] font-medium uppercase tracking-widest text-[var(--text-secondary)] opacity-60">
+                  Secure OAuth 2.0 &bull; 100% Privacy &bull; Official MAL API
+                </p>
+              </div>
+            )}
+          </div>
         </div>
       </section>
 
@@ -470,7 +539,7 @@ export default function LandingPage() {
               number="01"
               icon="🔗"
               title="Connect Your List"
-              desc="Enter your AniList or MAL username. No login required for public lists."
+              desc="Connect via MyAnimeList OAuth or enter your AniList username."
             />
             <StepItem 
               number="02"
@@ -495,27 +564,52 @@ export default function LandingPage() {
           <h2 className="font-display mb-10 text-6xl text-[var(--text-primary)] md:text-8xl">
             READY TO ORGANISE?
           </h2>
-          <form onSubmit={handleSubmit}>
-            <div className="mx-auto flex w-full max-w-md items-center gap-2 rounded-full border bg-[var(--bg-surface)] p-2 pl-6 transition-all focus-within:border-[var(--accent)]"
-                 style={{ borderColor: 'var(--border)', boxShadow: 'var(--shadow-lg)' }}>
-              <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[var(--accent)] text-[10px] font-bold text-white">
-                A
-              </div>
-              <input
-                type="text"
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                placeholder="Enter your AniList username"
-                className="w-full bg-transparent text-sm text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]"
-              />
-              <button
-                type="submit"
-                className="shrink-0 rounded-full bg-[var(--accent)] px-6 py-2.5 text-xs font-bold text-white transition-all hover:bg-[var(--accent-hover)] active:scale-95 cursor-pointer"
+          <div className="mx-auto flex w-full max-w-md flex-col items-center gap-4">
+            {selectedPlatform === "ANILIST" ? (
+              <form onSubmit={handleSubmit} className="w-full">
+                <div
+                  className="flex w-full items-center gap-2 rounded-full border bg-[var(--bg-surface)] p-2 pl-6 transition-all focus-within:border-[var(--accent)]"
+                  style={{ borderColor: "var(--border)", boxShadow: "var(--shadow-lg)" }}
+                >
+                  <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[var(--accent)] text-[10px] font-bold text-white">
+                    A
+                  </div>
+                  <input
+                    type="text"
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    placeholder="Enter your AniList username"
+                    className="w-full bg-transparent text-sm text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]"
+                  />
+                  <button
+                    type="submit"
+                    className="shrink-0 rounded-full bg-[var(--accent)] px-6 py-2.5 text-xs font-bold text-white transition-all hover:bg-[var(--accent-hover)] active:scale-95 cursor-pointer"
+                  >
+                    → ORGANISE
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <a
+                href="/api/auth/mal/login"
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "12px",
+                  padding: "16px 36px",
+                  borderRadius: "50px",
+                  backgroundColor: "#2E51A2",
+                  color: "#fff",
+                  fontWeight: "700",
+                  fontSize: "15px",
+                  textDecoration: "none",
+                  transition: "all 0.2s",
+                }}
               >
-                → ORGANISE
-              </button>
-            </div>
-          </form>
+                Connect MyAnimeList
+              </a>
+            )}
+          </div>
         </div>
       </section>
 

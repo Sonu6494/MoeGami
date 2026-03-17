@@ -1,12 +1,14 @@
 "use client";
 
+import { useState } from "react";
 import useAnimeStore from "@/store/useAnimeStore";
 import ThemeToggle from "@/components/ui/ThemeToggle";
 import { useRouter } from "next/navigation";
 
 export default function Navbar() {
-  const { username } = useAnimeStore();
+  const { username, platform, setUsername, setFranchiseGroups, setSequelAlerts } = useAnimeStore();
   const router = useRouter();
+  const [showDropdown, setShowDropdown] = useState(false);
 
   return (
     <nav
@@ -88,39 +90,132 @@ export default function Navbar() {
         {/* Right: theme + user */}
         <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
           <ThemeToggle />
-          <div
+          
+          {/* Platform Indicator */}
+          <span
             style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "8px",
-              padding: "6px 12px 6px 8px",
-              borderRadius: "20px",
-              backgroundColor: "var(--bg-elevated)",
-              border: "1px solid var(--border)",
+              fontSize: "10px",
+              fontWeight: "700",
+              padding: "2px 8px",
+              borderRadius: "8px",
+              backgroundColor: platform === "MAL" ? "#2E51A2" : "var(--accent)",
+              color: "#fff",
+              letterSpacing: "0.5px",
             }}
           >
+            {platform === "MAL" ? "MAL" : "AL"}
+          </span>
+
+          <div style={{ position: "relative" }}>
             <div
+              onClick={() => setShowDropdown(!showDropdown)}
               style={{
-                width: "24px",
-                height: "24px",
-                borderRadius: "50%",
-                backgroundColor: "var(--accent)",
                 display: "flex",
                 alignItems: "center",
-                justifyContent: "center",
-                color: "#fff",
-                fontSize: "11px",
-                fontWeight: "bold",
+                gap: "8px",
+                padding: "6px 12px 6px 8px",
+                borderRadius: "20px",
+                backgroundColor: "var(--bg-elevated)",
+                border: "1px solid var(--border)",
+                cursor: "pointer",
+                transition: "all 0.2s",
               }}
+              onMouseEnter={(e) => (e.currentTarget.style.borderColor = "var(--accent)")}
+              onMouseLeave={(e) => (e.currentTarget.style.borderColor = "var(--border)")}
             >
-              {username?.charAt(0).toUpperCase()}
+              <div
+                style={{
+                  width: "24px",
+                  height: "24px",
+                  borderRadius: "50%",
+                  backgroundColor: "var(--accent)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  color: "#fff",
+                  fontSize: "11px",
+                  fontWeight: "bold",
+                }}
+              >
+                {username ? username.charAt(0).toUpperCase() : "U"}
+              </div>
+              <span
+                className="hidden sm:inline"
+                style={{ fontSize: "13px", fontWeight: "500", color: "var(--text-primary)" }}
+              >
+                {username || "User"}
+              </span>
+              <svg
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                style={{
+                  transform: showDropdown ? "rotate(180deg)" : "none",
+                  transition: "transform 0.2s",
+                  color: "var(--text-secondary)",
+                }}
+              >
+                <path d="M6 9l6 6 6-6" />
+              </svg>
             </div>
-            <span
-              className="hidden sm:inline"
-              style={{ fontSize: "13px", fontWeight: "500", color: "var(--text-primary)" }}
-            >
-              {username}
-            </span>
+
+            {showDropdown && (
+              <>
+                <div
+                  className="fixed inset-0 z-10"
+                  onClick={() => setShowDropdown(false)}
+                />
+                <div
+                  style={{
+                    position: "absolute",
+                    top: "100%",
+                    right: 0,
+                    marginTop: "8px",
+                    backgroundColor: "var(--bg-surface)",
+                    border: "1px solid var(--border)",
+                    borderRadius: "12px",
+                    padding: "6px",
+                    minWidth: "160px",
+                    boxShadow: "var(--shadow-lg)",
+                    zIndex: 100,
+                  }}
+                >
+                  <button
+                    onClick={() => {
+                      setUsername("");
+                      setFranchiseGroups([]);
+                      setSequelAlerts([]);
+                      setShowDropdown(false);
+                      router.push("/");
+                    }}
+                    style={{
+                      width: "100%",
+                      textAlign: "left",
+                      padding: "8px 12px",
+                      borderRadius: "8px",
+                      fontSize: "13px",
+                      fontWeight: "500",
+                      color: "#FF6161",
+                      backgroundColor: "transparent",
+                      border: "none",
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "8px",
+                    }}
+                    onMouseEnter={(e) =>
+                      (e.currentTarget.style.backgroundColor = "rgba(255,97,97,0.1)")
+                    }
+                    onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "transparent")}
+                  >
+                    <span>🚪</span> Disconnect
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       </div>

@@ -4,24 +4,24 @@ import type { FranchiseGroup, NormalisedEntry } from "./types"
 
 // Relation types that define main timeline membership
 const MAIN_RELATION_TYPES = new Set([
-  "SEQUEL",
-  "PREQUEL",
-  "ALTERNATIVE_VERSION",
-  "ALTERNATIVE_SETTING",
+  "sequel",
+  "prequel",
+  "alternative_version",
+  "alternative_setting",
 ])
 
 // Relation types used for grouping entries into franchises
 // CHARACTER and OTHER intentionally excluded — too loose, cause
 // unrelated franchises to merge (e.g. AoT + Fire Force + Slime)
 const GROUPING_RELATION_TYPES = new Set([
-  "SEQUEL",
-  "PREQUEL",
-  "ALTERNATIVE_VERSION",
-  "ALTERNATIVE_SETTING",
-  "SIDE_STORY",
-  "PARENT",
-  "SPIN_OFF",
-  "SUMMARY",
+  "sequel",
+  "prequel",
+  "alternative_version",
+  "alternative_setting",
+  "side_story",
+  "parent_story",
+  "spin_off",
+  "summary",
 ])
 
 // Keywords too generic to use for title-similarity merging
@@ -39,47 +39,57 @@ function classifyEntry(
   entry: NormalisedEntry,
   groupEntries: NormalisedEntry[],
 ): "main" | "supplementary" {
+
   // TV and TV_SHORT → always main
   if (entry.type === "TV" || entry.type === "TV_SHORT") return "main"
 
-  // MOVIE → always main
-  if (entry.type === "MOVIE") return "main"
+  // ── NEW: Check PARENT relation first ──────────────
+  // If ANY relation to a group member is PARENT type
+  // this entry is a child/spinoff of that series → side story
+  // e.g. Strong World PARENT → ONE PIECE TV → side story
+  const hasParentRelation = entry.relations.some(r =>
+    r.relationType === "parent_story" &&
+    groupEntries.some(ge => ge.platform_id === r.id)
+  )
+  if (hasParentRelation) return "supplementary"
+  // ──────────────────────────────────────────────────
 
   const relationToGroup = entry.relations.find((r) =>
     groupEntries.some((ge) => ge.platform_id === r.id),
   )
 
-  // Root entry with no relations → main
-  if (!relationToGroup) return "main"
+  // Root entry with no relations to group
+  if (!relationToGroup) {
+    const groupHasTV = groupEntries.some(
+      e => e.type === "TV" || e.type === "TV_SHORT"
+    )
+    return groupHasTV ? "supplementary" : "main"
+  }
 
   // ALTERNATIVE_VERSION / SETTING → main
   if (
-    relationToGroup.relationType === "ALTERNATIVE_VERSION" ||
-    relationToGroup.relationType === "ALTERNATIVE_SETTING"
-  )
-    return "main"
+    relationToGroup.relationType === "alternative_version" ||
+    relationToGroup.relationType === "alternative_setting"
+  ) return "main"
 
-  // OVA / ONA / SPECIAL / MUSIC:
-  if (["OVA", "ONA", "SPECIAL", "MUSIC"].includes(entry.type)) {
-    if (relationToGroup.relationType === "PREQUEL") return "main"
+  // MOVIE, OVA, ONA, SPECIAL, MUSIC
+  if (["MOVIE", "OVA", "ONA", "SPECIAL", "MUSIC"].includes(entry.type)) {
 
-    if (relationToGroup.relationType === "SEQUEL") {
-      const somethingPrecedesThis = groupEntries.some(
-        (ge) =>
-          ge.platform_id !== entry.platform_id &&
-          ge.relations.some(
-            (r) => r.id === entry.platform_id && r.relationType === "SEQUEL",
-          ),
+    if (relationToGroup.relationType === "prequel") return "main"
+
+    if (relationToGroup.relationType === "sequel") {
+      const somethingPrecedesThis = groupEntries.some(ge =>
+        ge.platform_id !== entry.platform_id &&
+        ge.relations.some(r =>
+          r.id === entry.platform_id &&
+          r.relationType === "sequel"
+        )
       )
-
-      // Root ONA in a donghua-style chain (all ONAs, no TV) → main
-      // Root OVA in a TV franchise → side story (it's supplementary backstory)
       const groupHasTV = groupEntries.some(
-        (ge) => ge.type === "TV" || ge.type === "TV_SHORT",
+        e => e.type === "TV" || e.type === "TV_SHORT"
       )
-
       if (!somethingPrecedesThis && !groupHasTV) return "main"
-      if (!somethingPrecedesThis && groupHasTV) return "supplementary"
+      return "supplementary"
     }
 
     return "supplementary"
@@ -101,7 +111,7 @@ function findFranchiseRoot(groupEntries: NormalisedEntry[]): NormalisedEntry {
       (entry) =>
         !entry.relations.some(
           (r) =>
-            r.relationType === "PREQUEL" &&
+            r.relationType === "prequel" &&
             groupEntries.some((ge) => ge.platform_id === r.id),
         ),
     )

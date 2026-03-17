@@ -19,16 +19,20 @@ export type EntryType =
   | "UNKNOWN"
 
 export type RelationType =
-  | "SEQUEL"
-  | "PREQUEL"
-  | "ALTERNATIVE_VERSION"
-  | "ALTERNATIVE_SETTING"
-  | "SIDE_STORY"
-  | "PARENT"
-  | "SPIN_OFF"
-  | "SUMMARY"
-  | "CHARACTER"
-  | "OTHER"
+  | "sequel"
+  | "prequel"
+  | "parent_story"
+  | "full_story"
+  | "side_story"
+  | "summary"
+  | "spin_off"
+  | "alternative_version"
+  | "alternative_setting"
+  | "source"
+  | "compilation"
+  | "contains"
+  | "character"
+  | "other"
 
 export interface EntryRelation {
   id: number
@@ -71,6 +75,33 @@ export interface FranchiseGroup {
   main_timeline: NormalisedEntry[]
   side_stories: NormalisedEntry[]
   progress: ProgressData
+}
+
+export type SequelStatus = 
+  | "available"      // exists, not in user list
+  | "upcoming"       // announced, not aired yet
+  | "in_progress"    // user has it but not completed
+  | "watching"       // user is currently watching it
+
+export interface SequelAlert {
+  franchise_title: string
+  franchise_cover: string
+  franchise_id: string
+  last_watched: {
+    id: number
+    title: string
+    type: EntryType
+  }
+  next_entry: {
+    id: number
+    title: string
+    type: EntryType
+    status: string        // "FINISHED" | "RELEASING" | "NOT_YET_RELEASED"
+    season?: string       // "WINTER 2025"
+    year?: number
+    cover_image?: string
+  }
+  alert_status: SequelStatus
 }
 
 // Raw AniList API types

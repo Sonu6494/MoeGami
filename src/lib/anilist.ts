@@ -3,8 +3,9 @@ import type {
   AniListEntry,
   AniListCollection,
 } from "./types"
+import { fromAniList } from "./relations"
 
-const ANILIST_API = "https://graphql.anilist.co"
+const ANILIST_API = "/api/anilist"
 
 const USER_LIST_QUERY = `
   query GetUserList($username: String!) {
@@ -77,7 +78,7 @@ function normalise(
       id: edge.node.id,
       title: edge.node.title.romaji,
       type: (edge.node.format ?? edge.node.type) as NormalisedEntry["type"],
-      relationType: edge.relationType as NormalisedEntry["relations"][0]["relationType"],
+      relationType: fromAniList(edge.relationType),
     })),
     platform: "ANILIST",
   }

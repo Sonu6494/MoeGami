@@ -1,13 +1,16 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { useAnimeStore } from "@/store/useAnimeStore";
 import { fetchAndNormalise } from "@/lib/anilist";
 import { buildFranchiseGroups } from "@/lib/grouping";
 import Navbar from "@/components/layout/Navbar";
 import FranchiseCard from "@/components/ui/FranchiseCard";
+import SequelAlertCard from "@/components/ui/SequelAlertCard";
+import { scanForSequels } from "@/lib/sequelScanner";
+import type { NormalisedEntry } from "@/lib/types";
 
 type FilterType = "all" | "complete" | "in-progress" | "side_stories";
 type SortOption = "az" | "za" | "pct-high" | "pct-low" | "entries";
@@ -18,29 +21,102 @@ export default function DashboardPage() {
   const [activeFilter, setActiveFilter] = useState<FilterType>("all");
   const [sortOption, setSortOption] = useState<SortOption>("az");
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [sequelFilter, setSequelFilter] = useState('all');
+  const [showAllSequels, setShowAllSequels] = useState(false);
+  const [scanProgress, setScanProgress] = useState({ current: 0, total: 0 });
 
   const username = useAnimeStore((s) => s.username);
+  const platform = useAnimeStore((s) => s.platform);
+  const setPlatform = useAnimeStore((s) => s.setPlatform);
   const theme = useAnimeStore((s) => s.theme);
   const setRawEntries = useAnimeStore((s) => s.setRawEntries);
   const setFranchiseGroups = useAnimeStore((s) => s.setFranchiseGroups);
+  const { sequelAlerts, setSequelAlerts, isScanning, setIsScanning } = useAnimeStore();
   const setError = useAnimeStore((s) => s.setError);
+  const searchParams = useSearchParams();
 
   useEffect(() => {
-    if (!username) {
+    // Check if platform is passed in URL (redirect from MAL)
+    const p = searchParams.get("platform");
+    if (p === "mal") {
+      setPlatform("MAL");
+    }
+
+    if (!username && p !== "mal") {
       router.replace("/");
     }
-  }, [username, router]);
+  }, [username, router, searchParams, setPlatform]);
 
   const { data, isLoading, error, refetch } = useQuery({
-    queryKey: ["anime-list", username],
-    queryFn: () => fetchAndNormalise(username),
-    enabled: !!username,
+    queryKey: ["anime-list", platform, username],
+    queryFn: async (): Promise<NormalisedEntry[]> => {
+      if (platform === "MAL") {
+        const response = await fetch("/api/auth/mal/list");
+        if (!response.ok) {
+          const err = await response.json();
+          if (err.error === "Not authenticated with MAL") {
+            router.push("/");
+            return [];
+          }
+          throw new Error(err.error ?? "MAL fetch failed");
+        }
+        const json = await response.json();
+        return json.entries;
+      } else {
+        if (!username) return [];
+        return fetchAndNormalise(username);
+      }
+    },
+    enabled: platform === "MAL" || !!username,
+    staleTime: 5 * 60 * 1000,
+    retry: 1,
   });
 
   const groups = useMemo(() => {
     if (!data || data.length === 0) return [];
     return buildFranchiseGroups(data);
   }, [data]);
+
+  // Debug One Piece
+  useEffect(() => {
+    if (groups.length === 0) return;
+
+    const op = groups.find(
+      (f) =>
+        f.main_timeline.some((e) => e.title.toLowerCase().includes("piece")) ||
+        f.canonical_title.toLowerCase().includes("piece")
+    );
+    console.log("One Piece group:", op?.canonical_title);
+    console.log(
+      "One Piece MAIN:",
+      op?.main_timeline.map((e) => `[${e.type}] ${e.title}`)
+    );
+    console.log(
+      "One Piece SIDE:",
+      op?.side_stories.map((e) => `[${e.type}] ${e.title}`)
+    );
+  }, [groups]);
+
+  // Debug Re:Zero Splitting
+  useEffect(() => {
+    if (groups.length === 0) return;
+
+    const reZeroGroups = groups.filter(
+      (f) =>
+        f.canonical_title.toLowerCase().includes("zero") ||
+        f.main_timeline.some((e) => e.title.toLowerCase().includes("re:zero"))
+    );
+
+    console.log(`Re:Zero groups found: ${reZeroGroups.length}`);
+    reZeroGroups.forEach((g) => {
+      console.log(`\nGroup: "${g.canonical_title}"`);
+      console.log(
+        "Main:",
+        g.main_timeline.map((e) => `[${e.type}] ${e.title}`)
+      );
+      console.log("Relations of first entry:", g.main_timeline[0]?.relations);
+    });
+  }, [groups]);
 
   const filteredGroups = useMemo(() => {
     return groups.filter((group) => {
@@ -120,6 +196,42 @@ export default function DashboardPage() {
       setError(error.message);
     }
   }, [error, setError]);
+
+  // Run sequel scan after franchise groups are ready
+  useEffect(() => {
+    if (groups.length === 0) return;
+    if (sequelAlerts.length > 0) return; // already scanned this session
+
+    const runScan = async () => {
+      setIsScanning(true);
+      try {
+        const allIds = new Set<number>();
+        const allEntriesMap = new Map<number, NormalisedEntry>();
+
+        groups.forEach((f) => {
+          [...f.main_timeline, ...f.side_stories].forEach((e) => {
+            allIds.add(e.platform_id);
+            allEntriesMap.set(e.platform_id, e);
+          });
+        });
+
+        const alerts = await scanForSequels(
+          groups,
+          allIds,
+          allEntriesMap, // ← new parameter
+          (current, total) => setScanProgress({ current, total }) // ← add this
+        );
+        setSequelAlerts(alerts);
+        console.log(`Sequel scan complete: ${alerts.length} alerts found`);
+      } catch (err) {
+        console.error("Sequel scan failed:", err);
+      } finally {
+        setIsScanning(false);
+      }
+    };
+
+    runScan();
+  }, [groups, sequelAlerts.length, setSequelAlerts, setIsScanning]);
 
   if (!username) return null;
 
@@ -230,6 +342,133 @@ export default function DashboardPage() {
             </div>
           </div>
         </div>
+
+        {/* Sequel Scanner Section */}
+        {isScanning && (
+          <div
+            className="rounded-2xl p-4 mb-6"
+            style={{ backgroundColor: "var(--bg-surface)", border: "1px solid var(--border)" }}
+          >
+            {/* Top row */}
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-3">
+                <div
+                  className="w-4 h-4 rounded-full border-2 animate-spin flex-shrink-0"
+                  style={{ borderColor: "var(--accent)", borderTopColor: "transparent" }}
+                />
+                <p className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>
+                  Scanning for sequels
+                </p>
+              </div>
+
+              {/* Right side: count + percentage */}
+              <div className="flex items-center gap-2">
+                {scanProgress.total > 0 && (
+                  <>
+                    <span className="text-xs" style={{ color: "var(--text-secondary)" }}>
+                      {scanProgress.current} / {scanProgress.total} entries
+                    </span>
+                    <span
+                      className="text-xs font-bold px-2 py-0.5 rounded-full"
+                      style={{ backgroundColor: "var(--accent-light)", color: "var(--accent)" }}
+                    >
+                      {Math.round((scanProgress.current / scanProgress.total) * 100)}%
+                    </span>
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* Progress bar */}
+            {scanProgress.total > 0 && (
+              <div
+                className="w-full h-1.5 rounded-full overflow-hidden"
+                style={{ backgroundColor: "var(--border)" }}
+              >
+                <div
+                  className="h-full rounded-full transition-all duration-500 ease-out"
+                  style={{
+                    width: `${Math.round((scanProgress.current / scanProgress.total) * 100)}%`,
+                    background: "linear-gradient(90deg, var(--accent), #8B85FF)",
+                  }}
+                />
+              </div>
+            )}
+
+            {/* Subtitle */}
+            <p className="text-xs mt-2" style={{ color: "var(--text-secondary)" }}>
+              {scanProgress.total === 0
+                ? "Preparing scan..."
+                : scanProgress.current === 0
+                ? "Starting scan..."
+                : scanProgress.current >= scanProgress.total
+                ? "Almost done..."
+                : `Checking your completed anime for available sequels`}
+            </p>
+          </div>
+        )}
+
+        {!isScanning && sequelAlerts.length > 0 && (
+          <div className="mb-6">
+            {/* Header */}
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <span className="text-lg">🔍</span>
+                <h2 className="font-bold text-base" style={{ color: "var(--text-primary)" }}>
+                  What to Watch Next
+                </h2>
+                <span
+                  className="text-xs px-2 py-0.5 rounded-full font-semibold"
+                  style={{ backgroundColor: "rgba(108,99,255,0.15)", color: "var(--accent)" }}
+                >
+                  {sequelAlerts.filter((a) => a.alert_status === "available").length} available
+                </span>
+              </div>
+              {/* Filter tabs */}
+              <div className="flex gap-1">
+                {["All", "Available", "Upcoming"].map((tab) => (
+                  <button
+                    key={tab}
+                    onClick={() => setSequelFilter(tab.toLowerCase())}
+                    className="text-xs px-3 py-1 rounded-full transition-all"
+                    style={{
+                      backgroundColor:
+                        sequelFilter === tab.toLowerCase() ? "var(--accent)" : "var(--bg-elevated)",
+                      color: sequelFilter === tab.toLowerCase() ? "#fff" : "var(--text-secondary)",
+                    }}
+                  >
+                    {tab}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Alert cards */}
+            <div className="flex flex-col gap-2">
+              {sequelAlerts
+                .filter((a) => {
+                  if (sequelFilter === "available") return a.alert_status === "available";
+                  if (sequelFilter === "upcoming") return a.alert_status === "upcoming";
+                  return true;
+                })
+                .slice(0, showAllSequels ? undefined : 5)
+                .map((alert, i) => (
+                  <SequelAlertCard key={`${alert.franchise_id}-${i}`} alert={alert} />
+                ))}
+            </div>
+
+            {/* Show more */}
+            {sequelAlerts.length > 5 && (
+              <button
+                onClick={() => setShowAllSequels((s) => !s)}
+                className="w-full mt-2 py-2 text-xs rounded-xl transition-all"
+                style={{ color: "var(--text-secondary)", backgroundColor: "var(--bg-elevated)" }}
+              >
+                {showAllSequels ? "Show less ↑" : `Show ${sequelAlerts.length - 5} more ↓`}
+              </button>
+            )}
+          </div>
+        )}
 
         {/* Franchise list */}
         <div className="space-y-4">
