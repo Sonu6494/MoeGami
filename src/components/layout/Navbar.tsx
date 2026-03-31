@@ -1,224 +1,166 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
+import ArrowBackRoundedIcon from "@mui/icons-material/ArrowBackRounded";
+import LogoutRoundedIcon from "@mui/icons-material/LogoutRounded";
+import ExpandMoreRoundedIcon from "@mui/icons-material/ExpandMoreRounded";
+import {
+  Avatar,
+  Box,
+  Button,
+  Chip,
+  IconButton,
+  Menu,
+  MenuItem,
+  Stack,
+  Typography,
+} from "@mui/material";
 import useAnimeStore from "@/store/useAnimeStore";
 import ThemeToggle from "@/components/ui/ThemeToggle";
-import { useRouter } from "next/navigation";
+import { NavBrandLink, NavbarShell } from "@/components/layout/NavShared";
 
 export default function Navbar() {
-  const { username, platform, setUsername, setFranchiseGroups, setSequelAlerts } = useAnimeStore();
+  const {
+    username,
+    malUsername,
+    platform,
+    setUsername,
+    setMalUsername,
+    setFranchiseGroups,
+    setSequelAlerts,
+  } = useAnimeStore();
+  const setPlatform = useAnimeStore((s) => s.setPlatform);
   const router = useRouter();
-  const [showDropdown, setShowDropdown] = useState(false);
+  const queryClient = useQueryClient();
+  const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
+
+  const displayName =
+    platform === "MAL" ? malUsername || "MAL User" : username || "AniList User";
+
+  // FIX: abbreviated platform label — "MyAnimeList" was too wide
+  const platformLabel = platform === "MAL" ? "MAL" : "AniList";
+
+  async function handleDisconnect() {
+    if (platform === "MAL") {
+      await fetch("/api/auth/mal/logout");
+    }
+    queryClient.removeQueries({ queryKey: ["anime-list"] });
+    setUsername("");
+    setMalUsername("");
+    setFranchiseGroups([]);
+    setSequelAlerts([]);
+    setPlatform("ANILIST");
+    setAnchorEl(null);
+    router.push("/");
+  }
 
   return (
-    <nav
-      style={{
-        position: "fixed",
-        top: 0,
-        left: 0,
-        right: 0,
-        zIndex: 50,
-        height: "64px",
-        backgroundColor: "var(--bg-nav)",
-        backdropFilter: "blur(12px)",
-        borderBottom: "1px solid var(--border)",
-        boxShadow: "var(--shadow-sm)",
-      }}
-    >
-      <div
-        style={{
-          maxWidth: "1100px",
-          margin: "0 auto",
-          padding: "0 24px",
-          height: "100%",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
+    <NavbarShell>
+      <Stack direction="row" spacing={1.5} alignItems="center">
+        <NavBrandLink />
+      </Stack>
+
+      <Stack direction="row" spacing={1.25} alignItems="center">
+        <ThemeToggle />
+
+        <Button
+          onClick={(e) => setAnchorEl(e.currentTarget)}
+          endIcon={<ExpandMoreRoundedIcon sx={{ fontSize: 16 }} />}
+          sx={(theme) => ({
+            minWidth: 0,
+            px: 1,
+            py: 0.75,
+            borderRadius: 2,
+            border: `1px solid`,
+            // FIX: same visible border fix as back button
+            borderColor:
+              theme.palette.mode === "dark"
+                ? "rgba(255,255,255,0.15)"
+                : "rgba(0,0,0,0.12)",
+            color: "text.primary",
+            textTransform: "none",
+            bgcolor:
+              theme.palette.mode === "dark"
+                ? "rgba(255,255,255,0.04)"
+                : "rgba(255,255,255,0.9)",
+            "&:hover": {
+              borderColor: theme.palette.primary.main,
+              bgcolor:
+                theme.palette.mode === "dark"
+                  ? "rgba(255,255,255,0.07)"
+                  : "rgba(255,255,255,1)",
+            },
+          })}
+        >
+          <Stack direction="row" spacing={1} alignItems="center">
+            <Avatar
+              sx={{
+                width: 28,
+                height: 28,
+                bgcolor: "primary.main",
+                fontSize: "0.75rem",
+                fontWeight: 700,
+              }}
+            >
+              {displayName.charAt(0).toUpperCase()}
+            </Avatar>
+            <Box
+              sx={{
+                display: { xs: "none", sm: "block" },
+                textAlign: "left",
+              }}
+            >
+              <Typography
+                variant="body2"
+                sx={{ fontWeight: 700, lineHeight: 1.2, fontSize: "0.8rem" }}
+              >
+                {displayName}
+              </Typography>
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                sx={{ lineHeight: 1, fontSize: "0.68rem" }}
+              >
+                {platform === "MAL" ? "Linked MAL profile" : "AniList username"}
+              </Typography>
+            </Box>
+          </Stack>
+        </Button>
+      </Stack>
+
+      <Menu
+        anchorEl={anchorEl}
+        open={Boolean(anchorEl)}
+        onClose={() => setAnchorEl(null)}
+        anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
+        transformOrigin={{ vertical: "top", horizontal: "right" }}
+        PaperProps={{
+          elevation: 0,
+          sx: (theme) => ({
+            mt: 1,
+            minWidth: 56,
+            borderRadius: 3,
+            border: `1px solid`,
+            borderColor:
+              theme.palette.mode === "dark"
+                ? "rgba(255,255,255,0.1)"
+                : "rgba(0,0,0,0.08)",
+            boxShadow:
+              theme.palette.mode === "dark"
+                ? "0 8px 24px rgba(0,0,0,0.4)"
+                : "0 8px 24px rgba(0,0,0,0.08)",
+          }),
         }}
       >
-        {/* Left: back + logo */}
-        <div style={{ display: "flex", alignItems: "center", gap: "20px" }}>
-          <button
-            onClick={() => router.push("/")}
-            style={{
-              fontSize: "13px",
-              color: "var(--text-secondary)",
-              background: "none",
-              border: "none",
-              cursor: "pointer",
-              display: "flex",
-              alignItems: "center",
-              gap: "4px",
-            }}
-          >
-            ← <span className="hidden sm:inline">Back</span>
-          </button>
-          <div
-            style={{ display: "flex", alignItems: "center", gap: "8px", cursor: "pointer" }}
-            onClick={() => router.push("/")}
-          >
-            <div
-              style={{
-                width: "28px",
-                height: "28px",
-                borderRadius: "7px",
-                background: "var(--accent)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                color: "#fff",
-                fontSize: "12px",
-                fontWeight: "bold",
-                fontFamily: "'Bebas Neue', sans-serif",
-              }}
-            >
-              MG
-            </div>
-            <span
-              style={{
-                fontFamily: "'Bebas Neue', sans-serif",
-                fontSize: "20px",
-                letterSpacing: "2px",
-                color: "var(--text-primary)",
-              }}
-            >
-              MOE<span style={{ color: "var(--accent)" }}>GAMI</span>
-            </span>
-          </div>
-        </div>
-
-        {/* Right: theme + user */}
-        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-          <ThemeToggle />
-          
-          {/* Platform Indicator */}
-          <span
-            style={{
-              fontSize: "10px",
-              fontWeight: "700",
-              padding: "2px 8px",
-              borderRadius: "8px",
-              backgroundColor: platform === "MAL" ? "#2E51A2" : "var(--accent)",
-              color: "#fff",
-              letterSpacing: "0.5px",
-            }}
-          >
-            {platform === "MAL" ? "MAL" : "AL"}
-          </span>
-
-          <div style={{ position: "relative" }}>
-            <div
-              onClick={() => setShowDropdown(!showDropdown)}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "8px",
-                padding: "6px 12px 6px 8px",
-                borderRadius: "20px",
-                backgroundColor: "var(--bg-elevated)",
-                border: "1px solid var(--border)",
-                cursor: "pointer",
-                transition: "all 0.2s",
-              }}
-              onMouseEnter={(e) => (e.currentTarget.style.borderColor = "var(--accent)")}
-              onMouseLeave={(e) => (e.currentTarget.style.borderColor = "var(--border)")}
-            >
-              <div
-                style={{
-                  width: "24px",
-                  height: "24px",
-                  borderRadius: "50%",
-                  backgroundColor: "var(--accent)",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  color: "#fff",
-                  fontSize: "11px",
-                  fontWeight: "bold",
-                }}
-              >
-                {username ? username.charAt(0).toUpperCase() : "U"}
-              </div>
-              <span
-                className="hidden sm:inline"
-                style={{ fontSize: "13px", fontWeight: "500", color: "var(--text-primary)" }}
-              >
-                {username || "User"}
-              </span>
-              <svg
-                width="12"
-                height="12"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                style={{
-                  transform: showDropdown ? "rotate(180deg)" : "none",
-                  transition: "transform 0.2s",
-                  color: "var(--text-secondary)",
-                }}
-              >
-                <path d="M6 9l6 6 6-6" />
-              </svg>
-            </div>
-
-            {showDropdown && (
-              <>
-                <div
-                  className="fixed inset-0 z-10"
-                  onClick={() => setShowDropdown(false)}
-                />
-                <div
-                  style={{
-                    position: "absolute",
-                    top: "100%",
-                    right: 0,
-                    marginTop: "8px",
-                    backgroundColor: "var(--bg-surface)",
-                    border: "1px solid var(--border)",
-                    borderRadius: "12px",
-                    padding: "6px",
-                    minWidth: "160px",
-                    boxShadow: "var(--shadow-lg)",
-                    zIndex: 100,
-                  }}
-                >
-                  <button
-                    onClick={() => {
-                      setUsername("");
-                      setFranchiseGroups([]);
-                      setSequelAlerts([]);
-                      setShowDropdown(false);
-                      router.push("/");
-                    }}
-                    style={{
-                      width: "100%",
-                      textAlign: "left",
-                      padding: "8px 12px",
-                      borderRadius: "8px",
-                      fontSize: "13px",
-                      fontWeight: "500",
-                      color: "#FF6161",
-                      backgroundColor: "transparent",
-                      border: "none",
-                      cursor: "pointer",
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "8px",
-                    }}
-                    onMouseEnter={(e) =>
-                      (e.currentTarget.style.backgroundColor = "rgba(255,97,97,0.1)")
-                    }
-                    onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "transparent")}
-                  >
-                    <span>🚪</span> Disconnect
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-      </div>
-    </nav>
+        <MenuItem
+          onClick={handleDisconnect}
+          sx={{ color: "error.main", justifyContent: "center", py: 1.5 }}
+        >
+          <LogoutRoundedIcon />
+        </MenuItem>
+      </Menu>
+    </NavbarShell>
   );
 }

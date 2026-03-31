@@ -1,41 +1,57 @@
 "use client";
 
+import { useEffect, useState } from "react";
+import { IconButton, Tooltip } from "@mui/material";
+import DarkModeRoundedIcon from "@mui/icons-material/DarkModeRounded";
+import LightModeRoundedIcon from "@mui/icons-material/LightModeRounded";
 import useAnimeStore from "@/store/useAnimeStore";
-
-const THEMES = ["dark", "warm", "light"] as const;
-type Theme = (typeof THEMES)[number];
-
-const THEME_ICONS: Record<Theme, { icon: string; label: string }> = {
-  dark: { icon: "🌙", label: "Dark" },
-  warm: { icon: "🔥", label: "Warm" },
-  light: { icon: "☀️", label: "Light" },
-};
 
 export default function ThemeToggle() {
   const { theme, setTheme } = useAnimeStore();
 
-  const cycleTheme = () => {
-    const currentIndex = THEMES.indexOf(theme as Theme);
-    const nextTheme = THEMES[(currentIndex + 1) % THEMES.length];
-    setTheme(nextTheme);
-  };
+  // FIX: defer reading persisted value until after mount
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
 
-  const current = THEME_ICONS[theme as Theme] ?? THEME_ICONS.dark;
+  const mode = mounted && theme === "dark" ? "dark" : "light";
+  const nextMode = mode === "dark" ? "light" : "dark";
 
   return (
-    <button
-      onClick={cycleTheme}
-      className="group relative flex h-9 w-9 items-center justify-center rounded-lg border border-white/8 bg-white/5 transition-all hover:border-[var(--accent)] hover:bg-white/10"
-      style={{
-        backgroundColor: "var(--bg-elevated)",
-        borderColor: "var(--border)",
-      }}
-      aria-label={`Current theme: ${current.label}. Click to change.`}
-      title={current.label}
-    >
-      <span className="text-base transition-transform duration-200 group-hover:scale-110">
-        {current.icon}
-      </span>
-    </button>
+    <Tooltip title={`Switch to ${nextMode} mode`}>
+      <IconButton
+        onClick={() => setTheme(nextMode)}
+        aria-label={`Current theme: ${mode}. Switch to ${nextMode}.`}
+        sx={(t) => ({
+          width: 36,
+          height: 36,
+          borderRadius: 2,
+          border: "1px solid",
+          // FIX: visible border — same token as both navbars
+          borderColor:
+            t.palette.mode === "dark"
+              ? "rgba(255,255,255,0.15)"
+              : "rgba(0,0,0,0.15)",
+          bgcolor:
+            t.palette.mode === "dark"
+              ? "rgba(255,255,255,0.04)"
+              : "rgba(255,255,255,0.75)",
+          color: t.palette.text.primary,
+          transition: "border-color 0.2s, background-color 0.2s",
+          "&:hover": {
+            bgcolor:
+              t.palette.mode === "dark"
+                ? "rgba(255,255,255,0.08)"
+                : "rgba(255,255,255,0.95)",
+            borderColor: t.palette.primary.main,
+          },
+        })}
+      >
+        {mode === "dark" ? (
+          <LightModeRoundedIcon sx={{ fontSize: 18 }} />
+        ) : (
+          <DarkModeRoundedIcon sx={{ fontSize: 18 }} />
+        )}
+      </IconButton>
+    </Tooltip>
   );
 }

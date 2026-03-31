@@ -1,113 +1,118 @@
-'use client'
+"use client";
 
-import { useState } from 'react'
-import type { FranchiseGroup, NormalisedEntry } from '@/lib/types'
+import { useState } from "react";
+import ExpandMoreRoundedIcon from "@mui/icons-material/ExpandMoreRounded";
+import MovieCreationRoundedIcon from "@mui/icons-material/MovieCreationRounded";
+import OndemandVideoRoundedIcon from "@mui/icons-material/OndemandVideoRounded";
+import TvRoundedIcon from "@mui/icons-material/TvRounded";
+import PlayCircleRoundedIcon from "@mui/icons-material/PlayCircleRounded";
+import PauseCircleRoundedIcon from "@mui/icons-material/PauseCircleRounded";
+import StopCircleRoundedIcon from "@mui/icons-material/StopCircleRounded";
+import CheckCircleRoundedIcon from "@mui/icons-material/CheckCircleRounded";
+import TuneRoundedIcon from "@mui/icons-material/TuneRounded";
+import {
+  Box,
+  Button,
+  Card,
+  Chip,
+  Collapse,
+  Divider,
+  IconButton,
+  LinearProgress,
+  MenuItem,
+  Stack,
+  TextField,
+  Typography,
+  alpha,
+} from "@mui/material";
+import type { FranchiseGroup, NormalisedEntry } from "@/lib/types";
 
-// ── Relation badge config ─────────────────────────────
+const RELATION_BADGES: Record<
+  string,
+  { label: string; color: "primary" | "secondary" | "warning" | "success" | "default" }
+> = {
+  side_story: { label: "Side Story", color: "primary" },
+  summary: { label: "Summary", color: "default" },
+  spin_off: { label: "Spin-Off", color: "warning" },
+  prequel: { label: "Prequel", color: "secondary" },
+  alternative_version: { label: "Alt Version", color: "secondary" },
+  alternative_setting: { label: "Alt Setting", color: "secondary" },
+  source: { label: "Source", color: "success" },
+  compilation: { label: "Compilation", color: "warning" },
+};
 
-const RELATION_BADGES: Record<string, { label: string; className: string }> = {
-  side_story: { label: 'SIDE STORY', className: 'bg-blue-500/15 text-blue-400 border border-blue-500/20' },
-  summary: { label: 'SUMMARY', className: 'bg-gray-500/15 text-gray-400 border border-gray-500/20' },
-  spin_off: { label: 'SPIN OFF', className: 'bg-orange-500/15 text-orange-400 border border-orange-500/20' },
-  prequel: { label: 'PREQUEL', className: 'bg-purple-500/15 text-purple-400 border border-purple-500/20' },
-  alternative_version: { label: 'ALT VERSION', className: 'bg-pink-500/15 text-pink-400 border border-pink-500/20' },
-  alternative_setting: { label: 'ALT SETTING', className: 'bg-pink-500/15 text-pink-400 border border-pink-500/20' },
-  source: { label: 'SOURCE', className: 'bg-green-500/15 text-green-400 border border-green-500/20' },
-  compilation: { label: 'COMPILATION', className: 'bg-yellow-500/15 text-yellow-400 border border-yellow-500/20' },
+type FranchiseOption = { id: string; title: string };
+
+interface FranchiseCardProps {
+  franchise: FranchiseGroup;
+  isExpanded: boolean;
+  onExpand: (id: string) => void;
+  franchiseOptions: FranchiseOption[];
+  overrideTargets: Map<number, string>;
+  savingEntryId: number | null;
+  onSaveOverride: (entryId: number, targetFranchiseId: string | null) => Promise<void>;
+  onBlacklistFranchise: (id: string, title: string) => Promise<void>;
+  onBlacklistEntry: (entryId: number, title: string) => Promise<void>;
+  blacklistingId: string | number | null;
 }
 
-const TYPE_COLORS: Record<string, string> = {
-  TV: 'bg-[#6C63FF]/20 text-[#8B85FF]',
-  TV_SHORT: 'bg-[#6C63FF]/20 text-[#8B85FF]',
-  MOVIE: 'bg-cyan-500/20 text-cyan-400',
-  OVA: 'bg-yellow-500/20 text-yellow-400',
-  ONA: 'bg-green-500/20 text-green-400',
-  SPECIAL: 'bg-rose-500/20 text-rose-400',
-  MUSIC: 'bg-pink-500/20 text-pink-400',
+function getRelationBadge(entry: NormalisedEntry, allGroupEntries: NormalisedEntry[]) {
+  const relation = entry.relations.find((item) =>
+    allGroupEntries.some((ge) => ge.platform_id === item.id)
+  );
+  if (!relation) return null;
+  return RELATION_BADGES[relation.relationType] ?? null;
 }
 
-// ── Helper functions ──────────────────────────────────
-
-function getRelationBadge(
-  entry: NormalisedEntry,
-  allGroupEntries: NormalisedEntry[],
-) {
-  const rel = entry.relations.find((r) =>
-    allGroupEntries.some((ge) => ge.platform_id === r.id),
-  )
-  if (!rel) return null
-  return RELATION_BADGES[rel.relationType] ?? null
+function getStatusMeta(entry: NormalisedEntry) {
+  if (entry.user_completed)
+    return { label: "Done", color: "success.main", icon: CheckCircleRoundedIcon };
+  if (entry.status === "CURRENT")
+    return { label: "Watching", color: "secondary.main", icon: PlayCircleRoundedIcon };
+  if (entry.status === "PAUSED")
+    return { label: "Paused", color: "warning.main", icon: PauseCircleRoundedIcon };
+  if (entry.status === "DROPPED")
+    return { label: "Dropped", color: "error.main", icon: StopCircleRoundedIcon };
+  return { label: "Not watched", color: "text.disabled", icon: OndemandVideoRoundedIcon };
 }
 
-function getStatusIcon(entry: NormalisedEntry) {
-  if (entry.user_completed) {
-    return (
-      <span className="flex items-center justify-center w-5 h-5 rounded-md bg-[#4CAF50]/20 text-[#4CAF50] text-xs flex-shrink-0">
-        ✓
-      </span>
-    )
-  }
-  if (entry.status === 'CURRENT') {
-    return (
-      <span className="flex items-center justify-center w-5 h-5 rounded-md bg-blue-500/20 text-blue-400 text-xs flex-shrink-0">
-        ▶
-      </span>
-    )
-  }
-  if (entry.status === 'PAUSED') {
-    return (
-      <span className="flex items-center justify-center w-5 h-5 rounded-md bg-orange-500/20 text-orange-400 text-xs flex-shrink-0">
-        ⏸
-      </span>
-    )
-  }
-  if (entry.status === 'DROPPED') {
-    return (
-      <span className="flex items-center justify-center w-5 h-5 rounded-md bg-red-500/20 text-red-400 text-xs flex-shrink-0">
-        ✕
-      </span>
-    )
-  }
-  return (
-    <span className="flex items-center justify-center w-5 h-5 rounded-md bg-white/5 text-[#9E9E9E] text-xs flex-shrink-0">
-      ○
-    </span>
-  )
+function getEntryTypeIcon(entry: NormalisedEntry) {
+  if (entry.type === "MOVIE") return <MovieCreationRoundedIcon sx={{ fontSize: "0.85rem" }} />;
+  if (entry.type === "TV" || entry.type === "TV_SHORT")
+    return <TvRoundedIcon sx={{ fontSize: "0.85rem" }} />;
+  return <OndemandVideoRoundedIcon sx={{ fontSize: "0.85rem" }} />;
 }
 
 function ProgressBar({
   percentage,
   fullyCompleted,
-  size = 'sm',
+  hasPendingSequel = false,
 }: {
-  percentage: number
-  fullyCompleted?: boolean
-  size?: 'sm' | 'md'
+  percentage: number;
+  fullyCompleted?: boolean;
+  hasPendingSequel?: boolean;
 }) {
-  const height = size === 'sm' ? 'h-1' : 'h-1.5'
-
-  const fill =
-    fullyCompleted
-      ? 'linear-gradient(90deg, #FFD700, #FFA500)'
-      : percentage === 100
-        ? '#4CAF50'
-        : 'linear-gradient(90deg, #6C63FF, #8B85FF)'
-
   return (
-    <div className={`w-full ${height} rounded-full overflow-hidden`}
-      style={{ backgroundColor: 'var(--border)' }}>
-      <div
-        className={`${height} rounded-full transition-all duration-700 ease-out`}
-        style={{
-          width: `${Math.max(percentage, percentage > 0 ? 2 : 0)}%`,
-          background: fill,
-        }}
-      />
-    </div>
-  )
+    <LinearProgress
+      variant="determinate"
+      value={Math.max(percentage, percentage > 0 ? 2 : 0)}
+      sx={(t) => ({
+        // FIX: was 10px — too thick
+        height: 5,
+        borderRadius: 999,
+        bgcolor: alpha(t.palette.primary.main, 0.1),
+        "& .MuiLinearProgress-bar": {
+          borderRadius: 999,
+          background: fullyCompleted
+            ? "linear-gradient(90deg, #FFD54F, #FF9800)"
+            : percentage === 100 && !hasPendingSequel
+              ? t.palette.success.main
+              : `linear-gradient(90deg, ${t.palette.primary.main}, ${t.palette.secondary.main})`,
+        },
+      })}
+    />
+  );
 }
-
-// ── Entry Row ─────────────────────────────────────────
 
 function EntryRow({
   entry,
@@ -115,297 +120,429 @@ function EntryRow({
   allGroupEntries,
   showRelationBadge = false,
 }: {
-  entry: NormalisedEntry
-  index: number
-  allGroupEntries: NormalisedEntry[]
-  showRelationBadge?: boolean
+  entry: NormalisedEntry;
+  index: number;
+  allGroupEntries: NormalisedEntry[];
+  showRelationBadge?: boolean;
 }) {
-  const badge = showRelationBadge ? getRelationBadge(entry, allGroupEntries) : null
-  const typeColor = TYPE_COLORS[entry.type] ?? 'bg-white/10 text-[#9E9E9E]'
+  const badge = showRelationBadge ? getRelationBadge(entry, allGroupEntries) : null;
+  const statusMeta = getStatusMeta(entry);
+  const StatusIcon = statusMeta.icon;
 
   return (
-    <div
-      className="flex items-start gap-3 py-2.5 border-t"
-      style={{ borderColor: "var(--border)" }}
+    <Stack
+      direction="row"
+      spacing={1.25}
+      alignItems="center"
+      sx={{ py: 1, borderTop: "1px solid", borderColor: "divider" }}
     >
       {/* Status icon */}
-      {getStatusIcon(entry)}
+      <Box sx={{ color: statusMeta.color, display: "grid", placeItems: "center", flexShrink: 0 }}>
+        <StatusIcon sx={{ fontSize: 18 }} />
+      </Box>
 
-      {/* Number */}
-      <span
-        className="text-xs font-mono w-5 text-right flex-shrink-0 mt-0.5"
-        style={{ color: "var(--accent)", opacity: 0.6 }}
-      >
+      {/* Index */}
+      <Typography variant="caption" color="text.disabled" sx={{ minWidth: 16, flexShrink: 0 }}>
         {index}.
-      </span>
+      </Typography>
 
       {/* Title + year */}
-      <div className="flex-1 min-w-0">
-        <p
-          className="text-sm leading-snug truncate"
-          style={{
-            color: entry.user_completed ? "var(--text-primary)" : "var(--text-secondary)",
+      <Box sx={{ flex: 1, minWidth: 0 }}>
+        <Typography
+          variant="body2"
+          sx={{
+            fontWeight: 600,
+            lineHeight: 1.2,
+            // Dim unwatched entries slightly
+            opacity: entry.user_completed || entry.status === "CURRENT" ? 1 : 0.7,
           }}
+          noWrap
         >
           {entry.title}
-        </p>
-        <p className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>
+        </Typography>
+        <Typography variant="caption" color="text.secondary">
           {entry.start_year ?? "—"}
-          {entry.score > 0 && (
-            <span className="ml-2 text-yellow-500/80">★ {entry.score}</span>
-          )}
-        </p>
-      </div>
+          {entry.score > 0 ? ` · ${entry.score}★` : ""}
+        </Typography>
+      </Box>
 
       {/* Badges */}
-      <div className="flex items-center gap-1.5 flex-shrink-0">
+      <Stack direction="row" spacing={0.5} flexShrink={0}>
         {badge && (
-          <span className={`text-[10px] font-semibold tracking-wide px-1.5 py-0.5 rounded-md ${badge.className}`}>
-            {badge.label}
-          </span>
+          <Chip size="small" color={badge.color} variant="outlined" label={badge.label} />
         )}
-        <span className={`text-[10px] font-semibold tracking-wide px-1.5 py-0.5 rounded-md ${typeColor}`}>
-          {entry.type.replace('_', ' ')}
-        </span>
-      </div>
-    </div>
-  )
+        <Chip
+          size="small"
+          icon={getEntryTypeIcon(entry)}
+          variant="outlined"
+          label={entry.type.replace("_", " ")}
+          sx={{ "& .MuiChip-icon": { ml: "6px" } }}
+        />
+      </Stack>
+    </Stack>
+  );
 }
 
-// ── Main FranchiseCard ────────────────────────────────
+function OverrideEntryRow({
+  entry,
+  currentFranchiseId,
+  franchiseOptions,
+  activeOverrideTarget,
+  isSaving,
+  onSaveOverride,
+  onBlacklistEntry,
+  isBlacklisting,
+}: {
+  entry: NormalisedEntry;
+  currentFranchiseId: string;
+  franchiseOptions: FranchiseOption[];
+  activeOverrideTarget: string | null;
+  isSaving: boolean;
+  onSaveOverride: (entryId: number, targetFranchiseId: string | null) => Promise<void>;
+  onBlacklistEntry: (entryId: number, title: string) => Promise<void>;
+  isBlacklisting: boolean;
+}) {
+  const [selectedTarget, setSelectedTarget] = useState("");
+  const manualTargetId = `manual:${entry.platform_id}`;
+  const moveOptions = franchiseOptions.filter(
+    (o) => o.id !== currentFranchiseId && o.id !== manualTargetId
+  );
+  const resolvedTarget = selectedTarget || moveOptions[0]?.id || "";
 
-interface FranchiseCardProps {
-  franchise: FranchiseGroup
-  isExpanded: boolean
-  onExpand: (id: string) => void
+  return (
+    <Card
+      variant="outlined"
+      sx={(t) => ({
+        p: 1.5,
+        borderRadius: 2,
+        bgcolor:
+          t.palette.mode === "dark"
+            ? alpha(t.palette.background.default, 0.4)
+            : alpha(t.palette.background.default, 0.5),
+      })}
+    >
+      <Stack spacing={1}>
+        <Box>
+          <Typography variant="body2" sx={{ fontWeight: 600 }} noWrap>
+            {entry.title}
+          </Typography>
+          <Typography variant="caption" color="text.secondary">
+            {activeOverrideTarget ? "Override active" : "Auto grouped"}
+          </Typography>
+        </Box>
+
+        <Stack direction={{ xs: "column", sm: "row" }} spacing={0.75} alignItems={{ sm: "center" }}>
+          <Button
+            onClick={() => onSaveOverride(entry.platform_id, manualTargetId)}
+            disabled={isSaving || activeOverrideTarget === manualTargetId}
+            variant="outlined"
+            size="small"
+            sx={{ flexShrink: 0 }}
+          >
+            {activeOverrideTarget === manualTargetId ? "Own Group ✓" : "New Group"}
+          </Button>
+          <TextField
+            select
+            size="small"
+            fullWidth
+            value={resolvedTarget}
+            onChange={(e) => setSelectedTarget(e.target.value)}
+            disabled={isSaving || moveOptions.length === 0}
+          >
+            {moveOptions.length === 0 ? (
+              <MenuItem value="">No other targets</MenuItem>
+            ) : (
+              moveOptions.map((o) => (
+                <MenuItem key={o.id} value={o.id}>
+                  {o.title}
+                </MenuItem>
+              ))
+            )}
+          </TextField>
+          <Button
+            onClick={() => onSaveOverride(entry.platform_id, resolvedTarget)}
+            disabled={isSaving || !resolvedTarget}
+            variant="contained"
+            size="small"
+            sx={{ flexShrink: 0 }}
+          >
+            Move
+          </Button>
+          <Button
+            onClick={() => onSaveOverride(entry.platform_id, null)}
+            disabled={isSaving || !activeOverrideTarget}
+            variant="text"
+            color="inherit"
+            size="small"
+            sx={{ flexShrink: 0 }}
+          >
+            Reset
+          </Button>
+
+          <Button
+            onClick={() => onBlacklistEntry(entry.platform_id, entry.title)}
+            disabled={isSaving || isBlacklisting}
+            variant="text"
+            color="error"
+            size="small"
+            sx={{ flexShrink: 0, ml: "auto" }}
+          >
+            Ignore sequels
+          </Button>
+        </Stack>
+      </Stack>
+    </Card>
+  );
 }
 
 export default function FranchiseCard({
   franchise,
   isExpanded,
   onExpand,
+  franchiseOptions,
+  overrideTargets,
+  savingEntryId,
+  onSaveOverride,
+  onBlacklistFranchise,
+  onBlacklistEntry,
+  blacklistingId,
 }: FranchiseCardProps) {
-  const { progress } = franchise
-  const allEntries = [...franchise.main_timeline, ...franchise.side_stories]
+  const progress = franchise.progress;
+  const allEntries = [...franchise.main_timeline, ...franchise.side_stories];
 
-  const progressBadge = () => {
-    const badgeBase =
-      "text-[11px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap";
-
-    if (progress.fully_completed) {
-      return (
-        <span
-          className={badgeBase}
-          style={{
-            background: "linear-gradient(90deg,#FFD700,#FFA500)",
-            color: "#000",
-          }}
-        >
-          ★ Full
-        </span>
-      );
-    }
-    if (progress.percentage === 100) {
-      return (
-        <span
-          className={badgeBase}
-          style={{
-            backgroundColor: "rgba(76,175,80,0.15)",
-            color: "#4CAF50",
-            border: "1px solid rgba(76,175,80,0.3)",
-          }}
-        >
-          ✓ Done
-        </span>
-      );
-    }
-    return (
-      <span
-        className="text-sm font-bold flex-shrink-0"
-        style={{ color: "var(--accent)" }}
-      >
-        {progress.percentage}%
-      </span>
-    );
-  };
+  // FIX: Override panel is hidden by default — power feature, not primary UI
+  const [showOverrides, setShowOverrides] = useState(false);
 
   return (
-    <div
-      className="rounded-2xl overflow-hidden transition-all duration-200 hover:border-[rgba(124,58,237,0.25)] hover:shadow-[var(--shadow-md)]"
-      style={{
-        backgroundColor: "var(--bg-surface)",
-        boxShadow: isExpanded ? "var(--shadow-lg)" : "var(--shadow-sm)",
-        border: "1px solid var(--border)",
-      }}
+    <Card
+      sx={(t) => ({
+        overflow: "hidden",
+        borderRadius: 2,
+        border: `1px solid ${alpha(t.palette.divider, 0.3)}`,
+        transition: "box-shadow 0.2s ease, border-color 0.2s ease",
+        // FIX: no translateY — it conflicts with Collapse expand animation
+        "&:hover": {
+          boxShadow:
+            t.palette.mode === "dark"
+              ? "0 8px 24px rgba(5,10,20,0.4)"
+              : "0 8px 24px rgba(96,74,227,0.1)",
+          borderColor: alpha(t.palette.primary.main, 0.25),
+        },
+      })}
     >
-      {/* ── Collapsed header ── */}
-      <button
+      {/* ── Collapsed header (always visible) ── */}
+      <Box
+        sx={{ p: 2, cursor: "pointer" }}
         onClick={() => onExpand(franchise.franchise_id)}
-        className="group/card w-full p-4 text-left hover:bg-white/2 transition-colors duration-150"
-        aria-expanded={isExpanded}
       >
-        <div className="flex items-start gap-4">
-          {/* Cover image */}
-          <div className="flex-shrink-0 w-14 h-20 rounded-xl overflow-hidden bg-white/5 shadow-inner">
-            {franchise.cover_image ? (
-              <img
+        <Stack direction="row" spacing={1.75} alignItems="center">
+          {/* Cover */}
+          <Box
+            sx={(t) => ({
+              // FIX: smaller cover — was 180px tall on mobile
+              width: 56,
+              height: 80,
+              borderRadius: 2,
+              overflow: "hidden",
+              bgcolor: "action.hover",
+              flexShrink: 0,
+              boxShadow: `0 4px 12px ${alpha(t.palette.primary.main, 0.15)}`,
+            })}
+          >
+            {franchise.cover_image && (
+              <Box
+                component="img"
                 src={franchise.cover_image}
                 alt={franchise.canonical_title}
-                className="w-full h-full object-cover transition-transform duration-500 group-hover/card:scale-110"
-                loading="lazy"
+                sx={{ width: "100%", height: "100%", objectFit: "cover" }}
               />
-            ) : (
-              <div className="w-full h-full flex items-center justify-center text-white/20 text-2xl font-display">
-                ?
-              </div>
             )}
-          </div>
+          </Box>
 
-          {/* Content — stacks differently on mobile vs desktop */}
-          <div className="flex-1 min-w-0">
-            {/* Title row */}
-            <div className="flex items-start justify-between gap-2 mb-1.5">
-              <h3
-                className="font-semibold text-sm md:text-base leading-snug"
-                style={{
-                  color: "var(--text-primary)",
-                  // Allow 2 lines on mobile, 1 line on desktop
-                  display: "-webkit-box",
-                  WebkitLineClamp: 2,
-                  WebkitBoxOrient: "vertical",
-                  overflow: "hidden",
-                }}
-              >
-                {franchise.canonical_title}
-                {franchise.is_donghua && <span className="ml-1 text-xs">🇨🇳</span>}
-              </h3>
-
-              {/* Badge + chevron — always right aligned */}
-              <div className="flex items-center gap-1.5 flex-shrink-0 ml-2">
-                {progressBadge()}
-                <span
-                  className="transition-transform duration-300 flex-shrink-0"
-                  style={{
-                    transform: isExpanded ? "rotate(180deg)" : "rotate(0deg)",
-                    color: "var(--text-secondary)",
-                    display: "inline-block",
+          {/* Content */}
+          <Stack sx={{ flex: 1, minWidth: 0 }} spacing={0.75}>
+            <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={0.75}>
+              {/* Give title more room — minWidth 0 is critical */}
+              <Box sx={{ minWidth: 0, flex: 1 }}>
+                <Typography
+                  variant="subtitle1"
+                  sx={{
+                    fontWeight: 700,
+                    lineHeight: 1.2,
+                    fontSize: { xs: "0.875rem", sm: "1rem" },
                   }}
+                  noWrap
                 >
-                  <svg
-                    width="14"
-                    height="14"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2.5"
-                    strokeLinecap="round"
-                  >
-                    <polyline points="6 9 12 15 18 9" />
-                  </svg>
-                </span>
-              </div>
-            </div>
+                  {franchise.canonical_title}
+                  {franchise.is_donghua && (
+                    <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 0.75 }}>
+                      CN
+                    </Typography>
+                  )}
+                </Typography>
 
-            {/* Entry count chips */}
-            <div className="flex items-center gap-1.5 mb-2">
-              <span
-                className="text-xs px-2 py-0.5 rounded-full"
-                style={{
-                  backgroundColor: "var(--accent-light)",
-                  color: "var(--accent)",
-                }}
-              >
-                {franchise.main_timeline.length} main
-              </span>
-              {franchise.side_stories.length > 0 && (
-                <span
-                  className="text-xs px-2 py-0.5 rounded-full"
-                  style={{
-                    backgroundColor: "var(--bg-elevated)",
-                    color: "var(--text-secondary)",
+                <Stack direction="row" spacing={0.5} mt={0.5} flexWrap="wrap" useFlexGap>
+                  <Chip
+                    size="small"
+                    color="primary"
+                    variant="filled"
+                    label={`${franchise.main_timeline.length} main`}
+                    sx={{ height: 20, fontSize: "0.65rem" }}
+                  />
+                  {franchise.side_stories.length > 0 && (
+                    <Chip
+                      size="small"
+                      variant="outlined"
+                      label={`${franchise.side_stories.length} side`}
+                      sx={{ height: 20, fontSize: "0.65rem" }}
+                    />
+                  )}
+                  {franchise.has_pending_sequel && (
+                    <Chip
+                      size="small"
+                      color="secondary"
+                      label="Next up"
+                      sx={{ height: 20, fontSize: "0.65rem" }}
+                    />
+                  )}
+                </Stack>
+              </Box>
+
+              {/* Percentage + chevron — fixed width so title gets the rest */}
+              <Stack direction="row" spacing={0.25} alignItems="center" sx={{ flexShrink: 0, width: 64, justifyContent: "flex-end" }}>
+                <Typography
+                  variant="caption"
+                  sx={(t) => ({
+                    fontWeight: 700,
+                    fontSize: "0.8rem",
+                    color:
+                      progress.percentage === 100 && !franchise.has_pending_sequel
+                        ? t.palette.success.main
+                        : t.palette.primary.main,
+                  })}
+                >
+                  {progress.percentage}%
+                </Typography>
+                <IconButton
+                  size="small"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onExpand(franchise.franchise_id);
                   }}
+                  sx={{ p: 0.5 }}
                 >
-                  {franchise.side_stories.length} side
-                </span>
-              )}
-            </div>
+                  <ExpandMoreRoundedIcon
+                    sx={{
+                      fontSize: 18,
+                      transform: isExpanded ? "rotate(180deg)" : "rotate(0deg)",
+                      transition: "transform 200ms ease",
+                    }}
+                  />
+                </IconButton>
+              </Stack>
+            </Stack>
 
-            {/* Progress bar */}
+            <Typography variant="caption" color="text.secondary">
+              {progress.main_timeline_completed} / {progress.main_timeline_total} main complete
+            </Typography>
+
             <ProgressBar
               percentage={progress.percentage}
               fullyCompleted={progress.fully_completed}
-              size="sm"
+              hasPendingSequel={franchise.has_pending_sequel}
             />
-          </div>
-        </div>
-      </button>
+          </Stack>
+        </Stack>
+      </Box>
 
       {/* ── Expanded content ── */}
-      {isExpanded && (
-        <div className="px-4 pb-4" style={{ borderTop: "1px solid rgba(255,255,255,0.05)" }}>
-          {/* MAIN TIMELINE */}
-          <div className="mt-4">
-            <p
-              className="text-[10px] font-bold tracking-[0.2em] mb-2 uppercase"
-              style={{ color: "var(--accent)" }}
-            >
+      <Collapse in={isExpanded} timeout="auto" unmountOnExit>
+        <Divider />
+        <Stack spacing={2.5} sx={{ p: 2.5 }}>
+          {/* Main Timeline */}
+          <Box>
+            <Typography variant="overline" color="primary.main" sx={{ fontWeight: 700 }}>
               Main Timeline
-            </p>
-            <div className="space-y-1">
+            </Typography>
+            <Box mt={0.5}>
               {franchise.main_timeline.map((entry, i) => (
                 <EntryRow
                   key={entry.platform_id}
                   entry={entry}
                   index={i + 1}
                   allGroupEntries={allEntries}
-                  showRelationBadge={false}
                 />
               ))}
-            </div>
-          </div>
+            </Box>
+          </Box>
 
-          {/* SIDE STORIES */}
+          {/* Side Stories */}
           {franchise.side_stories.length > 0 && (
-            <div className="mt-6">
-              <p className="text-[10px] font-bold tracking-[0.2em] mb-2 uppercase text-[var(--text-muted)]">
+            <Box>
+              <Typography variant="overline" color="text.secondary" sx={{ fontWeight: 700 }}>
                 Side Stories
-              </p>
-              <div className="space-y-1 opacity-90">
+              </Typography>
+              <Box mt={0.5}>
                 {franchise.side_stories.map((entry, i) => (
                   <EntryRow
                     key={entry.platform_id}
                     entry={entry}
                     index={i + 1}
                     allGroupEntries={allEntries}
-                    showRelationBadge={true}
+                    showRelationBadge
                   />
                 ))}
-              </div>
-            </div>
+              </Box>
+            </Box>
           )}
 
-          {/* Progress summary */}
-          <div className="mt-6 pt-4 border-t border-white/5">
-            <div className="flex items-center justify-between mb-2 px-1">
-              <p className="text-[10px] md:text-xs text-[var(--text-secondary)]">
-                {progress.main_timeline_completed} of {progress.main_timeline_total} main entries
-                complete
-              </p>
-              <p
-                className="text-xs font-bold"
-                style={{ color: progress.percentage === 100 ? "#4CAF50" : "#8B85FF" }}
-              >
-                {progress.percentage}%
-              </p>
-            </div>
-            <ProgressBar
-              percentage={progress.percentage}
-              fullyCompleted={progress.fully_completed}
-              size="md"
-            />
-          </div>
-        </div>
-      )}
-    </div>
-  )
+          {/* FIX: Override section hidden behind toggle — was always visible */}
+          <Box>
+            <Button
+              size="small"
+              variant="text"
+              color="inherit"
+              startIcon={<TuneRoundedIcon sx={{ fontSize: 16 }} />}
+              onClick={() => setShowOverrides((v) => !v)}
+              sx={{ color: "text.secondary", textTransform: "none", px: 0 }}
+            >
+              {showOverrides ? "Hide grouping overrides" : "Manage grouping"}
+            </Button>
+
+            <Button
+              size="small"
+              variant="text"
+              color="error"
+              onClick={() => onBlacklistFranchise(franchise.franchise_id, franchise.canonical_title)}
+              disabled={blacklistingId === franchise.franchise_id}
+              sx={{ textTransform: "none", px: 0, ml: 2 }}
+            >
+              Ignore franchise
+            </Button>
+
+            <Collapse in={showOverrides} timeout="auto" unmountOnExit>
+              <Stack spacing={1} mt={1.5}>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
+                  Move entries to a different franchise or give them their own group.
+                </Typography>
+                {allEntries.map((entry) => (
+                  <OverrideEntryRow
+                    key={`override-${entry.platform_id}`}
+                    entry={entry}
+                    currentFranchiseId={franchise.franchise_id}
+                    franchiseOptions={franchiseOptions}
+                    activeOverrideTarget={overrideTargets.get(entry.platform_id) ?? null}
+                    isSaving={savingEntryId === entry.platform_id}
+                    onSaveOverride={onSaveOverride}
+                    onBlacklistEntry={onBlacklistEntry}
+                    isBlacklisting={blacklistingId === entry.platform_id}
+                  />
+                ))}
+              </Stack>
+            </Collapse>
+          </Box>
+        </Stack>
+      </Collapse>
+    </Card>
+  );
 }

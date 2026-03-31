@@ -1,5 +1,13 @@
 export type Platform = "ANILIST" | "MAL"
 
+// Airing status returned by AniList — used in EntryRelation and SequelAlert
+export type AiringStatus =
+  | "FINISHED"
+  | "RELEASING"
+  | "NOT_YET_RELEASED"
+  | "CANCELLED"
+  | "HIATUS"
+
 export type EntryStatus =
   | "COMPLETED"
   | "CURRENT"
@@ -39,6 +47,7 @@ export interface EntryRelation {
   title: string
   type: EntryType
   relationType: RelationType
+  status?: AiringStatus  // FIX: was `string`, now properly typed
 }
 
 export interface NormalisedEntry {
@@ -74,14 +83,18 @@ export interface FranchiseGroup {
   is_donghua: boolean
   main_timeline: NormalisedEntry[]
   side_stories: NormalisedEntry[]
+  // FIX: was optional (?), but buildFranchiseGroup always sets these
+  has_pending_sequel: boolean
+  pending_sequel_count: number
   progress: ProgressData
 }
 
-export type SequelStatus = 
-  | "available"      // exists, not in user list
-  | "upcoming"       // announced, not aired yet
-  | "in_progress"    // user has it but not completed
-  | "watching"       // user is currently watching it
+export type SequelStatus =
+  | "available"    // exists, not in user list
+  | "upcoming"     // announced, not aired yet
+  | "planned"      // user has it in plan-to-watch
+  | "in_progress"  // user has it but not completed
+  | "watching"     // user is currently watching it
 
 export interface SequelAlert {
   franchise_title: string
@@ -96,15 +109,46 @@ export interface SequelAlert {
     id: number
     title: string
     type: EntryType
-    status: string        // "FINISHED" | "RELEASING" | "NOT_YET_RELEASED"
-    season?: string       // "WINTER 2025"
+    status: AiringStatus  // FIX: was `string`
+    season?: string
     year?: number
     cover_image?: string
   }
   alert_status: SequelStatus
+  platform: Platform  // FIX: was inline "ANILIST" | "MAL" duplicate
 }
 
-// Raw AniList API types
+export interface DashboardSnapshot {
+  platform: Platform
+  accountKey: string
+  rawEntries: NormalisedEntry[]
+  franchiseGroups: FranchiseGroup[]
+  sequelAlerts: SequelAlert[]
+  syncedAt: number
+}
+
+export type DashboardSnapshotSource = "local" | "cloud" | "fresh"
+
+export interface FranchiseOverride {
+  platform: Platform
+  accountKey: string
+  entryId: number
+  targetFranchiseId: string
+  updatedAt: number
+}
+
+export interface BlacklistEntry {
+  platform: Platform
+  accountKey: string
+  type: "franchise" | "entry"
+  // franchise_id if type === "franchise", platform_id if type === "entry"
+  targetId: string
+  title: string        // for display in the blacklist manager UI
+  createdAt: number
+}
+
+// ── Raw AniList API types ─────────────────────────────
+
 export interface AniListMediaTitle {
   romaji: string
   english: string | null
@@ -146,7 +190,7 @@ export interface AniListEntry {
   type: string
   format: string | null
   episodes: number | null
-  status: string
+  status?: string  // FIX: removed from GraphQL query in anilist.ts — must be optional
   countryOfOrigin: string
   coverImage: AniListCoverImage
   startDate: AniListStartDate

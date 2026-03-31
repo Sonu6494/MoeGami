@@ -1,158 +1,514 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
+import {
+  Alert,
+  Box,
+  Button,
+  Card,
+  Chip,
+  CircularProgress,
+  Container,
+  Grid,
+  InputAdornment,
+  LinearProgress,
+  MenuItem,
+  Paper,
+  Stack,
+  TextField,
+  ToggleButton,
+  ToggleButtonGroup,
+  Typography,
+  alpha,
+} from "@mui/material";
+import SearchRoundedIcon from "@mui/icons-material/SearchRounded";
+import SyncRoundedIcon from "@mui/icons-material/SyncRounded";
+import TuneRoundedIcon from "@mui/icons-material/TuneRounded";
+import FolderCopyRoundedIcon from "@mui/icons-material/FolderCopyRounded";
+import CheckCircleRoundedIcon from "@mui/icons-material/CheckCircleRounded";
+import TrendingUpRoundedIcon from "@mui/icons-material/TrendingUpRounded";
+import ListAltRoundedIcon from "@mui/icons-material/ListAltRounded";
+import PlayCircleFilledRoundedIcon from "@mui/icons-material/PlayCircleFilledRounded";
+import SubscriptionsRoundedIcon from "@mui/icons-material/SubscriptionsRounded";
 import { useAnimeStore } from "@/store/useAnimeStore";
 import { fetchAndNormalise } from "@/lib/anilist";
-import { buildFranchiseGroups } from "@/lib/grouping";
+import {
+  formatLastSynced,
+  getDashboardCacheStaleTime,
+  readDashboardSnapshot,
+  readRemoteDashboardSnapshot,
+  writeDashboardSnapshot,
+  writeRemoteDashboardSnapshot,
+} from "@/lib/dashboardCache";
+import {
+  addToRemoteBlacklist,
+  buildBlacklistSets,
+  readBlacklist,
+  readRemoteBlacklist,
+  removeFromRemoteBlacklist,
+  writeBlacklist,
+} from "@/lib/blacklistCache";
+import { applyFranchiseOverrides, buildFranchiseGroups } from "@/lib/grouping";
 import Navbar from "@/components/layout/Navbar";
 import FranchiseCard from "@/components/ui/FranchiseCard";
+import FranchiseCardSkeleton from "@/components/ui/FranchiseCardSkeleton";
 import SequelAlertCard from "@/components/ui/SequelAlertCard";
+import SequelAlertCardSkeleton from "@/components/ui/SequelAlertCardSkeleton";
 import { scanForSequels } from "@/lib/sequelScanner";
-import type { NormalisedEntry } from "@/lib/types";
+import type {
+  BlacklistEntry,
+  DashboardSnapshot,
+  DashboardSnapshotSource,
+  FranchiseGroup,
+  FranchiseOverride,
+  NormalisedEntry,
+  SequelAlert,
+} from "@/lib/types";
 
 type FilterType = "all" | "complete" | "in-progress" | "side_stories";
 type SortOption = "az" | "za" | "pct-high" | "pct-low" | "entries";
+type DashboardSnapshotResult = {
+  snapshot: DashboardSnapshot;
+  source: DashboardSnapshotSource;
+};
 
-export default function DashboardPage() {
+function buildScanContext(groups: DashboardSnapshot["franchiseGroups"]) {
+  const allIds = new Set<number>();
+  const allEntriesMap = new Map<number, NormalisedEntry>();
+
+  groups.forEach((group) => {
+    [...group.main_timeline, ...group.side_stories].forEach((entry) => {
+      allIds.add(entry.platform_id);
+      allEntriesMap.set(entry.platform_id, entry);
+    });
+  });
+
+  return { allIds, allEntriesMap };
+}
+
+function applySequelAwareProgress(groups: FranchiseGroup[], sequelAlerts: SequelAlert[]) {
+  const pendingCounts = new Map<string, number>();
+
+  sequelAlerts.forEach((alert) => {
+    const nextCount = (pendingCounts.get(alert.franchise_id) ?? 0) + 1;
+    pendingCounts.set(alert.franchise_id, nextCount);
+  });
+
+  return groups.map((group) => {
+    const pendingSequelCount = pendingCounts.get(group.franchise_id) ?? 0;
+    if (pendingSequelCount === 0) {
+      return {
+        ...group,
+        has_pending_sequel: false,
+        pending_sequel_count: 0,
+      };
+    }
+
+    if (group.is_donghua) {
+      return {
+        ...group,
+        has_pending_sequel: true,
+        pending_sequel_count: pendingSequelCount,
+        progress: {
+          ...group.progress,
+          fully_completed: false,
+        },
+      };
+    }
+
+    const completedMainEntries = group.main_timeline.filter((entry) => entry.user_completed).length;
+    const sequelAwareTotal = group.main_timeline.length + pendingSequelCount;
+    const sequelAwarePercentage =
+      sequelAwareTotal > 0 ? Math.floor((completedMainEntries / sequelAwareTotal) * 100) : 0;
+
+    return {
+      ...group,
+      has_pending_sequel: true,
+      pending_sequel_count: pendingSequelCount,
+      progress: {
+        ...group.progress,
+        main_timeline_total: sequelAwareTotal,
+        main_timeline_completed: completedMainEntries,
+        percentage: sequelAwarePercentage,
+        fully_completed: false,
+      },
+    };
+  });
+}
+
+
+
+/* ── Main Dashboard Content ── */
+function DashboardContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [searchTerm, setSearchTerm] = useState("");
   const [activeFilter, setActiveFilter] = useState<FilterType>("all");
   const [sortOption, setSortOption] = useState<SortOption>("az");
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [sequelFilter, setSequelFilter] = useState('all');
+  const [sequelFilter, setSequelFilter] = useState("all");
   const [showAllSequels, setShowAllSequels] = useState(false);
   const [scanProgress, setScanProgress] = useState({ current: 0, total: 0 });
+  const [cloudSyncNotice, setCloudSyncNotice] = useState<string | null>(null);
+  const [overrideSavingEntryId, setOverrideSavingEntryId] = useState<number | null>(null);
+  const [blacklistingId, setBlacklistingId] = useState<string | number | null>(null);
+  const [overrideSequelAlerts, setOverrideSequelAlerts] = useState<SequelAlert[] | null>(null);
+  const forceFreshSyncRef = useRef(false);
 
   const username = useAnimeStore((s) => s.username);
+  const malUsername = useAnimeStore((s) => s.malUsername);
   const platform = useAnimeStore((s) => s.platform);
   const setPlatform = useAnimeStore((s) => s.setPlatform);
-  const theme = useAnimeStore((s) => s.theme);
+  const setMalUsername = useAnimeStore((s) => s.setMalUsername);
   const setRawEntries = useAnimeStore((s) => s.setRawEntries);
   const setFranchiseGroups = useAnimeStore((s) => s.setFranchiseGroups);
-  const { sequelAlerts, setSequelAlerts, isScanning, setIsScanning } = useAnimeStore();
+  const setSequelAlerts = useAnimeStore((s) => s.setSequelAlerts);
+  const isScanning = useAnimeStore((s) => s.isScanning);
+  const setIsScanning = useAnimeStore((s) => s.setIsScanning);
   const setError = useAnimeStore((s) => s.setError);
-  const searchParams = useSearchParams();
+
+  const cacheAccountKey = platform === "MAL" ? malUsername : username;
+  const cachedSnapshot = useMemo(
+    () => readDashboardSnapshot(platform, cacheAccountKey),
+    [platform, cacheAccountKey]
+  );
+
+  const localBlacklist = useMemo(
+    () => readBlacklist(platform, cacheAccountKey),
+    [platform, cacheAccountKey]
+  );
 
   useEffect(() => {
-    // Check if platform is passed in URL (redirect from MAL)
-    const p = searchParams.get("platform");
-    if (p === "mal") {
+    const queryPlatform = searchParams.get("platform");
+    if (queryPlatform === "mal") {
       setPlatform("MAL");
     }
 
-    if (!username && p !== "mal") {
+    if (!username && platform !== "MAL" && queryPlatform !== "mal") {
       router.replace("/");
     }
-  }, [username, router, searchParams, setPlatform]);
+  }, [platform, router, searchParams, setPlatform, username]);
 
-  const { data, isLoading, error, refetch } = useQuery({
-    queryKey: ["anime-list", platform, username],
-    queryFn: async (): Promise<NormalisedEntry[]> => {
+  const {
+    data: snapshotResult,
+    isLoading,
+    error,
+    refetch,
+    isFetching,
+  } = useQuery<DashboardSnapshotResult>({
+    queryKey: ["dashboard-snapshot", platform, platform === "MAL" ? "__mal_session__" : username],
+    queryFn: async () => {
+      const syncedAt = Date.now();
+      const staleTime = getDashboardCacheStaleTime(platform);
+      const remoteSnapshot = forceFreshSyncRef.current
+        ? null
+        : await readRemoteDashboardSnapshot(platform, cacheAccountKey);
+
+      if (remoteSnapshot && Date.now() - remoteSnapshot.syncedAt < staleTime) {
+        return {
+          snapshot: remoteSnapshot,
+          source: "cloud",
+        };
+      }
+
+      let accountKey = cacheAccountKey;
+      let entries: NormalisedEntry[] = [];
+
       if (platform === "MAL") {
         const response = await fetch("/api/auth/mal/list");
         if (!response.ok) {
           const err = await response.json();
           if (err.error === "Not authenticated with MAL") {
             router.push("/");
-            return [];
+            return {
+              snapshot: {
+                platform,
+                accountKey: "",
+                rawEntries: [],
+                franchiseGroups: [],
+                sequelAlerts: [],
+                syncedAt,
+              },
+              source: "fresh",
+            };
           }
+
           throw new Error(err.error ?? "MAL fetch failed");
         }
+
         const json = await response.json();
-        return json.entries;
+        if (json.malUsername) {
+          setMalUsername(json.malUsername);
+          accountKey = json.malUsername;
+        }
+        entries = json.entries;
       } else {
-        if (!username) return [];
-        return fetchAndNormalise(username);
+        if (!username) {
+          return {
+            snapshot: {
+              platform,
+              accountKey: "",
+              rawEntries: [],
+              franchiseGroups: [],
+              sequelAlerts: [],
+              syncedAt,
+            },
+            source: "fresh",
+          };
+        }
+
+        entries = await fetchAndNormalise(username);
+      }
+
+      const franchiseGroups = buildFranchiseGroups(entries);
+      const { allIds, allEntriesMap } = buildScanContext(franchiseGroups);
+
+      setScanProgress({ current: 0, total: 0 });
+      setIsScanning(true);
+
+      try {
+        const blacklistSets = buildBlacklistSets(await readRemoteBlacklist(platform, accountKey));
+
+        const sequelAlerts = await scanForSequels(
+          franchiseGroups,
+          allIds,
+          allEntriesMap,
+          (current, total) => setScanProgress({ current, total }),
+          platform,
+          blacklistSets.franchiseIds,
+          blacklistSets.entryIds
+        );
+
+        return {
+          snapshot: {
+            platform,
+            accountKey,
+            rawEntries: entries,
+            franchiseGroups,
+            sequelAlerts,
+            syncedAt,
+          },
+          source: "fresh",
+        };
+      } finally {
+        setIsScanning(false);
       }
     },
     enabled: platform === "MAL" || !!username,
-    staleTime: 5 * 60 * 1000,
-    retry: 1,
+    initialData: cachedSnapshot
+      ? {
+        snapshot: cachedSnapshot,
+        source: "local",
+      }
+      : undefined,
+    initialDataUpdatedAt: cachedSnapshot?.syncedAt,
+    staleTime: getDashboardCacheStaleTime(platform),
+    retry: 0,
+    refetchOnWindowFocus: false,
   });
 
-  const groups = useMemo(() => {
-    if (!data || data.length === 0) return [];
-    return buildFranchiseGroups(data);
-  }, [data]);
+  const snapshot = snapshotResult?.snapshot ?? null;
+  const snapshotSource = snapshotResult?.source ?? null;
+  const overrideAccountKey = snapshot?.accountKey ?? cacheAccountKey;
 
-  // Debug One Piece
+  const {
+    data: overrides = [],
+    refetch: refetchOverrides,
+  } = useQuery<FranchiseOverride[]>({
+    queryKey: ["franchise-overrides", platform, overrideAccountKey],
+    queryFn: async () => {
+      const params = new URLSearchParams({
+        platform,
+        accountKey: overrideAccountKey,
+      });
+      const response = await fetch(`/api/franchise-overrides?${params.toString()}`);
+      const json = (await response.json()) as {
+        overrides?: FranchiseOverride[];
+        error?: string;
+      };
+
+      if (!response.ok) {
+        throw new Error(json.error ?? "Failed to load franchise overrides");
+      }
+
+      return json.overrides ?? [];
+    },
+    enabled: !!overrideAccountKey,
+    initialData: [],
+    retry: 0,
+    refetchOnWindowFocus: false,
+  });
+
+  const {
+    data: blacklist = [],
+    refetch: refetchBlacklist,
+  } = useQuery<BlacklistEntry[]>({
+    queryKey: ["blacklist", platform, overrideAccountKey],
+    queryFn: () => readRemoteBlacklist(platform, overrideAccountKey),
+    enabled: !!overrideAccountKey,
+    initialData: localBlacklist,
+    retry: 0,
+    refetchOnWindowFocus: false,
+  });
+
+  const blacklistSets = useMemo(() => buildBlacklistSets(blacklist), [blacklist]);
+
+  const data = useMemo(() => snapshot?.rawEntries ?? [], [snapshot]);
+  const baseGroups = useMemo(() => snapshot?.franchiseGroups ?? [], [snapshot]);
+  const groups = useMemo(() => applyFranchiseOverrides(baseGroups, overrides), [baseGroups, overrides]);
+  const sequelAlerts = useMemo(
+    () => overrideSequelAlerts ?? snapshot?.sequelAlerts ?? [],
+    [overrideSequelAlerts, snapshot]
+  );
+  const overrideTargets = useMemo(
+    () => new Map(overrides.map((override) => [override.entryId, override.targetFranchiseId])),
+    [overrides]
+  );
+  const franchiseOptions = useMemo(
+    () =>
+      groups.map((group) => ({
+        id: group.franchise_id,
+        title: group.canonical_title,
+      })),
+    [groups]
+  );
+  const displayGroups = useMemo(
+    () => applySequelAwareProgress(groups, sequelAlerts),
+    [groups, sequelAlerts]
+  );
+  const errorMessage = error instanceof Error ? error.message : "Failed to load your library";
+  const lastSyncedLabel = formatLastSynced(snapshot?.syncedAt ?? null);
+  const sourceLabel = useMemo(() => {
+    if (!snapshotSource) return null;
+    if (snapshotSource === "local") return "Browser cache";
+    if (snapshotSource === "cloud") return "Cloud cache";
+    return "Fresh sync";
+  }, [snapshotSource]);
+
   useEffect(() => {
-    if (groups.length === 0) return;
+    if (!snapshot) {
+      setOverrideSequelAlerts(null);
+      return;
+    }
 
-    const op = groups.find(
-      (f) =>
-        f.main_timeline.some((e) => e.title.toLowerCase().includes("piece")) ||
-        f.canonical_title.toLowerCase().includes("piece")
-    );
-    console.log("One Piece group:", op?.canonical_title);
-    console.log(
-      "One Piece MAIN:",
-      op?.main_timeline.map((e) => `[${e.type}] ${e.title}`)
-    );
-    console.log(
-      "One Piece SIDE:",
-      op?.side_stories.map((e) => `[${e.type}] ${e.title}`)
-    );
-  }, [groups]);
+    if (overrides.length === 0) {
+      setOverrideSequelAlerts(null);
+      return;
+    }
 
-  // Debug Re:Zero Splitting
+    let cancelled = false;
+    const { allIds, allEntriesMap } = buildScanContext(groups);
+
+    setScanProgress({ current: 0, total: 0 });
+    setIsScanning(true);
+
+    void scanForSequels(
+      groups,
+      allIds,
+      allEntriesMap,
+      (current, total) => {
+        if (!cancelled) {
+          setScanProgress({ current, total });
+        }
+      },
+      platform,
+      blacklistSets.franchiseIds,
+      blacklistSets.entryIds
+    )
+      .then((alerts) => {
+        if (!cancelled) {
+          setOverrideSequelAlerts(alerts);
+        }
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) {
+          const message =
+            err instanceof Error ? err.message : "Failed to refresh sequel alerts";
+          setError(message);
+          setOverrideSequelAlerts(snapshot.sequelAlerts);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setIsScanning(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [groups, overrides, platform, setError, setIsScanning, snapshot, blacklistSets]);
+
   useEffect(() => {
-    if (groups.length === 0) return;
+    if (!snapshot) return;
 
-    const reZeroGroups = groups.filter(
-      (f) =>
-        f.canonical_title.toLowerCase().includes("zero") ||
-        f.main_timeline.some((e) => e.title.toLowerCase().includes("re:zero"))
-    );
+    setRawEntries(snapshot.rawEntries);
+    setFranchiseGroups(displayGroups);
+    setSequelAlerts(sequelAlerts);
+    setCloudSyncNotice(null);
 
-    console.log(`Re:Zero groups found: ${reZeroGroups.length}`);
-    reZeroGroups.forEach((g) => {
-      console.log(`\nGroup: "${g.canonical_title}"`);
-      console.log(
-        "Main:",
-        g.main_timeline.map((e) => `[${e.type}] ${e.title}`)
-      );
-      console.log("Relations of first entry:", g.main_timeline[0]?.relations);
-    });
-  }, [groups]);
+    if (snapshot.accountKey) {
+      writeDashboardSnapshot(snapshot);
+      if (snapshotSource === "fresh") {
+        void writeRemoteDashboardSnapshot(snapshot).then((result) => {
+          if (!result.saved) {
+            setCloudSyncNotice("Cloud cache failed, browser cache still saved");
+          }
+        });
+      }
+    }
+  }, [
+    displayGroups,
+    sequelAlerts,
+    setFranchiseGroups,
+    setRawEntries,
+    setSequelAlerts,
+    snapshot,
+    snapshotSource,
+  ]);
+
+  useEffect(() => {
+    if (error) {
+      setError(errorMessage);
+    }
+  }, [error, errorMessage, setError]);
 
   const filteredGroups = useMemo(() => {
-    return groups.filter((group) => {
+    return displayGroups.filter((group) => {
       const query = searchTerm.toLowerCase().replace(/[-\s]+/g, " ").trim();
       if (query.length === 0) {
         if (activeFilter === "complete") return group.progress.percentage === 100;
-        if (activeFilter === "in-progress")
+        if (activeFilter === "in-progress") {
           return group.progress.percentage > 0 && group.progress.percentage < 100;
+        }
         if (activeFilter === "side_stories") return group.side_stories.length > 0;
         return true;
       }
 
-      const title = group.canonical_title
-        .toLowerCase()
-        .replace(/[-\s]+/g, " ")
-        .trim();
-
+      const title = group.canonical_title.toLowerCase().replace(/[-\s]+/g, " ").trim();
       const searchMatch =
         title.includes(query) ||
-        group.main_timeline.some((e) =>
-          e.title.toLowerCase().replace(/[-\s]+/g, " ").includes(query)
+        group.main_timeline.some((entry) =>
+          entry.title.toLowerCase().replace(/[-\s]+/g, " ").includes(query)
         );
 
       if (!searchMatch) return false;
 
       if (activeFilter === "complete") return group.progress.percentage === 100;
-      if (activeFilter === "in-progress")
+      if (activeFilter === "in-progress") {
         return group.progress.percentage > 0 && group.progress.percentage < 100;
+      }
       if (activeFilter === "side_stories") return group.side_stories.length > 0;
 
       return true;
     });
-  }, [groups, searchTerm, activeFilter]);
+  }, [activeFilter, displayGroups, searchTerm]);
 
   const sortedGroups = useMemo(() => {
     const sorted = [...filteredGroups];
+
     switch (sortOption) {
       case "az":
         return sorted.sort((a, b) => a.canonical_title.localeCompare(b.canonical_title));
@@ -175,356 +531,844 @@ export default function DashboardPage() {
   }, [filteredGroups, sortOption]);
 
   const stats = useMemo(() => {
-    const franchises = groups.length;
-    const completed = groups.filter((g) => g.progress.percentage === 100).length;
-    const inProgress = groups.filter(
-      (g) => g.progress.percentage > 0 && g.progress.percentage < 100
+    const franchises = displayGroups.length;
+    const completed = displayGroups.filter((group) => group.progress.percentage === 100).length;
+    const inProgress = displayGroups.filter(
+      (group) => group.progress.percentage > 0 && group.progress.percentage < 100
     ).length;
-    const entries = data?.length ?? 0;
+    const entries = data.length;
 
     return { franchises, completed, inProgress, entries };
-  }, [groups, data]);
+  }, [data.length, displayGroups]);
 
-  useEffect(() => {
-    if (!data) return;
-    setRawEntries(data);
-    setFranchiseGroups(groups);
-  }, [data, groups, setRawEntries, setFranchiseGroups]);
+  const inProgressGroups = useMemo(() => {
+    return displayGroups.filter((g) => g.progress.percentage > 0 && g.progress.percentage < 100);
+  }, [displayGroups]);
 
-  useEffect(() => {
-    if (error) {
-      setError(error.message);
+  const planningGroups = useMemo(() => {
+    return displayGroups.filter((g) => g.progress.percentage === 0 && g.main_timeline.some((e) => e.status === "PLANNING" || e.status === "CURRENT"));
+  }, [displayGroups]);
+
+  const heroItem = useMemo(() => {
+    let targetGroup = inProgressGroups.length > 0 ? inProgressGroups[0] : planningGroups[0];
+    if (!targetGroup && displayGroups.length > 0) targetGroup = displayGroups[0];
+    if (!targetGroup) return null;
+
+    const current = targetGroup.main_timeline.find((e) => e.status === "CURRENT");
+    if (current) return { group: targetGroup, entry: current };
+    
+    const planning = targetGroup.main_timeline.find((e) => e.status === "PLANNING");
+    if (planning) return { group: targetGroup, entry: planning };
+
+    return { group: targetGroup, entry: targetGroup.main_timeline[0] };
+  }, [inProgressGroups, planningGroups, displayGroups]);
+
+  async function handleManualSync() {
+    setError(null);
+    forceFreshSyncRef.current = true;
+
+    try {
+      await refetch();
+    } finally {
+      forceFreshSyncRef.current = false;
     }
-  }, [error, setError]);
+  }
 
-  // Run sequel scan after franchise groups are ready
-  useEffect(() => {
-    if (groups.length === 0) return;
-    if (sequelAlerts.length > 0) return; // already scanned this session
+  async function handleSaveOverride(entryId: number, targetFranchiseId: string | null) {
+    if (!overrideAccountKey) {
+      setError("Missing account key for franchise override");
+      return;
+    }
 
-    const runScan = async () => {
-      setIsScanning(true);
-      try {
-        const allIds = new Set<number>();
-        const allEntriesMap = new Map<number, NormalisedEntry>();
+    setError(null);
+    setOverrideSavingEntryId(entryId);
 
-        groups.forEach((f) => {
-          [...f.main_timeline, ...f.side_stories].forEach((e) => {
-            allIds.add(e.platform_id);
-            allEntriesMap.set(e.platform_id, e);
-          });
-        });
+    try {
+      const response = await fetch("/api/franchise-overrides", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          platform,
+          accountKey: overrideAccountKey,
+          entryId,
+          targetFranchiseId,
+        }),
+      });
 
-        const alerts = await scanForSequels(
-          groups,
-          allIds,
-          allEntriesMap, // ← new parameter
-          (current, total) => setScanProgress({ current, total }) // ← add this
-        );
-        setSequelAlerts(alerts);
-        console.log(`Sequel scan complete: ${alerts.length} alerts found`);
-      } catch (err) {
-        console.error("Sequel scan failed:", err);
-      } finally {
-        setIsScanning(false);
+      const json = (await response.json()) as {
+        saved?: boolean;
+        error?: string;
+      };
+
+      if (!response.ok || json.saved !== true) {
+        throw new Error(json.error ?? "Failed to save franchise override");
       }
-    };
 
-    runScan();
-  }, [groups, sequelAlerts.length, setSequelAlerts, setIsScanning]);
+      await refetchOverrides();
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error ? err.message : "Failed to save franchise override";
+      setError(message);
+    } finally {
+      setOverrideSavingEntryId(null);
+    }
+  }
 
-  if (!username) return null;
+  async function handleBlacklistFranchise(id: string, title: string) {
+    if (!overrideAccountKey) return;
+    setBlacklistingId(id);
+    try {
+      const entry: BlacklistEntry = {
+        platform,
+        accountKey: overrideAccountKey,
+        type: "franchise",
+        targetId: id,
+        title,
+        createdAt: Date.now(),
+      };
+      const result = await addToRemoteBlacklist(entry);
+      if (result.saved) {
+        writeBlacklist(platform, overrideAccountKey, [...blacklist, entry]);
+        await refetchBlacklist();
+      } else {
+        setError(result.error);
+      }
+    } catch (err: any) {
+      setError(err.message || "Failed to ignore franchise");
+    } finally {
+      setBlacklistingId(null);
+    }
+  }
+
+  async function handleBlacklistEntry(entryId: number, title: string) {
+    if (!overrideAccountKey) return;
+    setBlacklistingId(entryId);
+    try {
+      const entry: BlacklistEntry = {
+        platform,
+        accountKey: overrideAccountKey,
+        type: "entry",
+        targetId: entryId.toString(),
+        title,
+        createdAt: Date.now(),
+      };
+      const result = await addToRemoteBlacklist(entry);
+      if (result.saved) {
+        writeBlacklist(platform, overrideAccountKey, [...blacklist, entry]);
+        await refetchBlacklist();
+      } else {
+        setError(result.error);
+      }
+    } catch (err: any) {
+      setError(err.message || "Failed to ignore entry");
+    } finally {
+      setBlacklistingId(null);
+    }
+  }
+
+  async function handleRemoveBlacklist(targetId: string) {
+    if (!overrideAccountKey) return;
+    try {
+      const result = await removeFromRemoteBlacklist(targetId, platform, overrideAccountKey);
+      if (result.saved) {
+        const next = blacklist.filter((b) => b.targetId !== targetId);
+        writeBlacklist(platform, overrideAccountKey, next);
+        await refetchBlacklist();
+      }
+    } catch (err: any) {
+      setError(err.message || "Failed to remove from blacklist");
+    }
+  }
+
+  if (!username && platform !== "MAL") return null;
 
   return (
     <>
       <Navbar />
+      <Box component="main" sx={{ pb: 12, pt: { xs: 10, md: 12 } }}>
+        <Container maxWidth="lg">
+          <Stack spacing={4}>
+            {/* ── Header ── */}
+            <Stack direction={{ xs: "column", sm: "row" }} justifyContent="space-between" alignItems={{ xs: "flex-start", sm: "center" }} spacing={2}>
+              <Box>
+                <Typography variant="h4" sx={{ 
+                  fontWeight: 900, 
+                  fontFamily: "var(--font-epilogue)", 
+                  letterSpacing: "-0.03em",
+                  background: (t) => t.palette.mode === 'dark' 
+                    ? 'linear-gradient(to right, #ece1f4, #c38bf5)' 
+                    : 'inherit',
+                  WebkitBackgroundClip: (t) => t.palette.mode === 'dark' ? 'text' : 'inherit',
+                  WebkitTextFillColor: (t) => t.palette.mode === 'dark' ? 'transparent' : 'inherit',
+                }}>
+                  DASHBOARD
+                </Typography>
+              </Box>
+              <Button
+                onClick={handleManualSync}
+                disabled={isFetching}
+                size="small"
+                variant="outlined"
+                startIcon={isFetching ? <CircularProgress size={12} color="inherit" /> : <SyncRoundedIcon sx={{ fontSize: 16 }} />}
+                sx={(t) => ({
+                  borderRadius: 999,
+                  textTransform: "none",
+                  fontWeight: 600,
+                  fontSize: "0.75rem",
+                  py: 0.5,
+                  px: 1.5,
+                  color: "text.secondary",
+                  borderColor: alpha(t.palette.divider, 0.8),
+                  bgcolor: alpha(t.palette.action.hover, 0.04),
+                  "&:hover": {
+                    borderColor: "primary.main",
+                    color: "primary.main",
+                    bgcolor: alpha(t.palette.primary.main, 0.04),
+                  },
+                })}
+              >
+                {isFetching ? "Syncing..." : lastSyncedLabel}
+              </Button>
+            </Stack>
 
-      <main className="mx-auto max-w-5xl px-4 pb-16 pt-20">
-        {/* Stats bar — 2x2 on mobile, 4x1 on desktop */}
-        <div
-          className="rounded-2xl p-4 my-6 grid grid-cols-2 md:grid-cols-4 gap-3"
-          style={{
-            backgroundColor: "var(--bg-surface)",
-            border: "1px solid var(--border)",
-          }}
-        >
-          {[
-            { value: stats.franchises, label: "Franchises" },
-            { value: stats.completed, label: "Completed" },
-            { value: stats.inProgress, label: "In Progress" },
-            { value: stats.entries, label: "Entries" },
-          ].map((stat) => (
-            <div key={stat.label} className="flex flex-col items-center py-2">
-              <span
-                className="text-2xl font-bold"
-                style={{
-                  color: "var(--accent)",
-                  fontFamily: "'Bebas Neue', sans-serif",
+            {/* ── Hero Banner ── */}
+            {heroItem && (
+              <Box 
+                sx={{
+                  position: 'relative',
+                  width: '100%',
+                  height: { xs: 320, md: 440 },
+                  borderRadius: 4,
+                  overflow: 'hidden',
+                  bgcolor: 'background.paper',
+                  boxShadow: (t) => t.shadows[10],
                 }}
               >
-                {stat.value}
-              </span>
-              <span
-                className="text-xs mt-0.5 tracking-wide uppercase"
-                style={{ color: "var(--text-secondary)" }}
-              >
-                {stat.label}
-              </span>
-            </div>
-          ))}
-        </div>
-
-        {/* Search + filters */}
-        <div className="glass mb-8 rounded-2xl p-6">
-          <div className="flex items-center gap-3 border-b border-white/10 pb-4">
-            <svg
-              className="h-5 w-5 text-[var(--text-secondary)]"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-              />
-            </svg>
-            <input
-              type="text"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Search your library..."
-              className="w-full bg-transparent text-lg text-[var(--text-primary)] outline-none placeholder:text-[var(--text-secondary)]/50"
-            />
-          </div>
-
-          <div className="mt-6 flex flex-wrap items-center justify-between gap-4">
-            <div className="flex flex-wrap gap-2">
-              {(["all", "complete", "in-progress", "side_stories"] as FilterType[]).map((f) => (
-                <button
-                  key={f}
-                  onClick={() => setActiveFilter(f)}
-                  className={`cursor-pointer rounded-full px-4 py-1.5 text-xs font-medium transition-all ${
-                    activeFilter === f
-                      ? "bg-[var(--accent)] text-white shadow-lg shadow-[var(--accent)]/20"
-                      : "glass text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-                  }`}
-                >
-                  {f === "all"
-                    ? "All"
-                    : f === "complete"
-                    ? "Complete ✓"
-                    : f === "in-progress"
-                    ? "In Progress"
-                    : "Side Stories"}
-                </button>
-              ))}
-            </div>
-
-            <div className="relative">
-              <select
-                value={sortOption}
-                onChange={(e) => setSortOption(e.target.value as SortOption)}
-                className="glass cursor-pointer appearance-none rounded-full py-1.5 pl-4 pr-10 text-xs font-medium text-[var(--text-secondary)] outline-none hover:text-[var(--text-primary)]"
-              >
-                <option value="az">A → Z</option>
-                <option value="za">Z → A</option>
-                <option value="pct-high">% High → Low</option>
-                <option value="pct-low">% Low → High</option>
-                <option value="entries">Most Entries</option>
-              </select>
-              <div className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-[var(--text-secondary)]">
-                <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                </svg>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Sequel Scanner Section */}
-        {isScanning && (
-          <div
-            className="rounded-2xl p-4 mb-6"
-            style={{ backgroundColor: "var(--bg-surface)", border: "1px solid var(--border)" }}
-          >
-            {/* Top row */}
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-3">
-                <div
-                  className="w-4 h-4 rounded-full border-2 animate-spin flex-shrink-0"
-                  style={{ borderColor: "var(--accent)", borderTopColor: "transparent" }}
-                />
-                <p className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>
-                  Scanning for sequels
-                </p>
-              </div>
-
-              {/* Right side: count + percentage */}
-              <div className="flex items-center gap-2">
-                {scanProgress.total > 0 && (
-                  <>
-                    <span className="text-xs" style={{ color: "var(--text-secondary)" }}>
-                      {scanProgress.current} / {scanProgress.total} entries
-                    </span>
-                    <span
-                      className="text-xs font-bold px-2 py-0.5 rounded-full"
-                      style={{ backgroundColor: "var(--accent-light)", color: "var(--accent)" }}
-                    >
-                      {Math.round((scanProgress.current / scanProgress.total) * 100)}%
-                    </span>
-                  </>
-                )}
-              </div>
-            </div>
-
-            {/* Progress bar */}
-            {scanProgress.total > 0 && (
-              <div
-                className="w-full h-1.5 rounded-full overflow-hidden"
-                style={{ backgroundColor: "var(--border)" }}
-              >
-                <div
-                  className="h-full rounded-full transition-all duration-500 ease-out"
-                  style={{
-                    width: `${Math.round((scanProgress.current / scanProgress.total) * 100)}%`,
-                    background: "linear-gradient(90deg, var(--accent), #8B85FF)",
-                  }}
-                />
-              </div>
-            )}
-
-            {/* Subtitle */}
-            <p className="text-xs mt-2" style={{ color: "var(--text-secondary)" }}>
-              {scanProgress.total === 0
-                ? "Preparing scan..."
-                : scanProgress.current === 0
-                ? "Starting scan..."
-                : scanProgress.current >= scanProgress.total
-                ? "Almost done..."
-                : `Checking your completed anime for available sequels`}
-            </p>
-          </div>
-        )}
-
-        {!isScanning && sequelAlerts.length > 0 && (
-          <div className="mb-6">
-            {/* Header */}
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2">
-                <span className="text-lg">🔍</span>
-                <h2 className="font-bold text-base" style={{ color: "var(--text-primary)" }}>
-                  What to Watch Next
-                </h2>
-                <span
-                  className="text-xs px-2 py-0.5 rounded-full font-semibold"
-                  style={{ backgroundColor: "rgba(108,99,255,0.15)", color: "var(--accent)" }}
-                >
-                  {sequelAlerts.filter((a) => a.alert_status === "available").length} available
-                </span>
-              </div>
-              {/* Filter tabs */}
-              <div className="flex gap-1">
-                {["All", "Available", "Upcoming"].map((tab) => (
-                  <button
-                    key={tab}
-                    onClick={() => setSequelFilter(tab.toLowerCase())}
-                    className="text-xs px-3 py-1 rounded-full transition-all"
-                    style={{
-                      backgroundColor:
-                        sequelFilter === tab.toLowerCase() ? "var(--accent)" : "var(--bg-elevated)",
-                      color: sequelFilter === tab.toLowerCase() ? "#fff" : "var(--text-secondary)",
+                <Box sx={{
+                  position: 'absolute',
+                  inset: 0,
+                  backgroundImage: `url(${heroItem.entry.cover_image})`,
+                  backgroundSize: 'cover',
+                  backgroundPosition: 'center 20%',
+                }} />
+                <Box sx={{
+                  position: 'absolute',
+                  inset: 0,
+                  background: (t) => t.palette.mode === 'dark' 
+                    ? 'linear-gradient(to top, rgba(12, 6, 20, 1) 0%, rgba(12, 6, 20, 0.5) 40%, rgba(12, 6, 20, 0.1) 100%)' 
+                    : 'linear-gradient(to top, rgba(255, 255, 255, 1) 0%, rgba(255, 255, 255, 0.6) 40%, transparent 100%)',
+                }} />
+                <Box sx={{
+                  position: 'absolute',
+                  bottom: 0,
+                  left: 0,
+                  right: 0,
+                  p: { xs: 3, md: 5 },
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'flex-start',
+                  gap: 1.5,
+                  zIndex: 2,
+                }}>
+                  <Chip 
+                    label={heroItem.entry.status === 'CURRENT' ? 'Continue Watching' : heroItem.entry.status === 'COMPLETED' ? 'Completed' : 'Plan to Watch'} 
+                    size="small" 
+                    color="primary" 
+                    sx={{ fontWeight: 800, backdropFilter: 'blur(8px)', bgcolor: (t) => alpha(t.palette.primary.main, 0.8), color: '#fff' }} 
+                  />
+                  <Typography variant="h2" sx={{ 
+                    fontWeight: 900, 
+                    fontFamily: 'var(--font-epilogue)',
+                    textShadow: (t) => t.palette.mode === 'dark' ? '0 4px 16px rgba(0,0,0,0.8)' : '0 2px 8px rgba(255,255,255,0.8)',
+                    color: (t) => t.palette.mode === 'dark' ? '#ece1f4' : 'text.primary',
+                    lineHeight: 1.1,
+                  }}>
+                    {heroItem.entry.title}
+                  </Typography>
+                  <Typography variant="body1" sx={{ 
+                    opacity: 0.85, 
+                    fontWeight: 500,
+                    textShadow: (t) => t.palette.mode === 'dark' ? '0 2px 8px rgba(0,0,0,0.8)' : 'none', 
+                    maxWidth: 700,
+                    color: (t) => t.palette.mode === 'dark' ? '#b2a7b9' : 'text.secondary',
+                  }}>
+                    {heroItem.group.canonical_title} {heroItem.group.progress.percentage > 0 ? `• ${heroItem.group.progress.percentage}% Complete` : ''}
+                  </Typography>
+                  <Button 
+                    variant="contained" 
+                    size="large" 
+                    startIcon={<SubscriptionsRoundedIcon />} 
+                    onClick={() => {
+                      document.getElementById('library-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                      setExpandedId(heroItem.group.franchise_id);
+                    }}
+                    sx={{ 
+                      mt: 2, 
+                      borderRadius: 999, 
+                      px: 4, 
+                      py: 1.5, 
+                      fontWeight: 800,
+                      background: (t) => t.palette.mode === 'dark' ? `linear-gradient(135deg, ${t.palette.primary.light}, ${t.palette.primary.main})` : `linear-gradient(135deg, ${t.palette.primary.main}, ${t.palette.primary.dark})`,
+                      boxShadow: (t) => t.palette.mode === 'dark' ? '0 8px 24px rgba(189, 157, 255, 0.4)' : '0 8px 24px rgba(111, 75, 255, 0.4)',
+                      color: (t) => t.palette.mode === 'dark' ? '#2e006c' : '#ffffff',
                     }}
                   >
-                    {tab}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Alert cards */}
-            <div className="flex flex-col gap-2">
-              {sequelAlerts
-                .filter((a) => {
-                  if (sequelFilter === "available") return a.alert_status === "available";
-                  if (sequelFilter === "upcoming") return a.alert_status === "upcoming";
-                  return true;
-                })
-                .slice(0, showAllSequels ? undefined : 5)
-                .map((alert, i) => (
-                  <SequelAlertCard key={`${alert.franchise_id}-${i}`} alert={alert} />
-                ))}
-            </div>
-
-            {/* Show more */}
-            {sequelAlerts.length > 5 && (
-              <button
-                onClick={() => setShowAllSequels((s) => !s)}
-                className="w-full mt-2 py-2 text-xs rounded-xl transition-all"
-                style={{ color: "var(--text-secondary)", backgroundColor: "var(--bg-elevated)" }}
-              >
-                {showAllSequels ? "Show less ↑" : `Show ${sequelAlerts.length - 5} more ↓`}
-              </button>
+                    View Timeline
+                  </Button>
+                </Box>
+              </Box>
             )}
-          </div>
-        )}
 
-        {/* Franchise list */}
-        <div className="space-y-4">
-          {isLoading ? (
-            <div className="flex min-h-[400px] flex-col items-center justify-center gap-4">
-              <div className="h-10 w-10 animate-spin rounded-full border-2 border-[var(--accent)] border-t-transparent" />
-              <p className="animate-pulse text-sm text-[var(--text-secondary)]">
-                Fetching your library...
-              </p>
-            </div>
-          ) : error ? (
-            <div className="glass flex flex-col items-center justify-center gap-4 rounded-2xl border-red-500/20 p-12 text-center">
-              <div className="rounded-full bg-red-500/10 p-4 text-red-500">
-                <svg className="h-8 w-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-                  />
-                </svg>
-              </div>
-              <div>
-                <h3 className="text-lg font-bold text-red-100">Load Error</h3>
-                <p className="mt-2 text-sm text-red-100/60 max-w-xs">{error.message}</p>
-              </div>
-              <button
-                onClick={() => refetch()}
-                className="mt-4 cursor-pointer rounded-full bg-red-500 px-8 py-2 text-xs font-bold text-white transition-all hover:bg-red-600"
-              >
-                Retry
-              </button>
-            </div>
-          ) : sortedGroups.length > 0 ? (
-            <div className="flex flex-col gap-4">
-              {sortedGroups.map((franchise) => (
-                <FranchiseCard
-                  key={franchise.franchise_id}
-                  franchise={franchise}
-                  isExpanded={expandedId === franchise.franchise_id}
-                  onExpand={(id) => setExpandedId((prev) => (prev === id ? null : id))}
-                />
+            {/* ── Quick Stats Row ── */}
+            <Grid container spacing={2}>
+              {[
+                { value: stats.inProgress, label: "Watching", icon: TrendingUpRoundedIcon, color: "#bd9dff" },
+                { value: stats.completed, label: "Completed", icon: CheckCircleRoundedIcon, color: "#10b981" },
+                { value: stats.franchises, label: "Franchises", icon: FolderCopyRoundedIcon, color: "#c38bf5" },
+                { value: stats.entries, label: "Library Entries", icon: ListAltRoundedIcon, color: "#67E8F9" },
+              ].map((stat) => (
+                <Grid key={stat.label} size={{ xs: 6, md: 3 }}>
+                  <Paper
+                    elevation={0}
+                    sx={(t) => ({
+                      borderRadius: 4,
+                      p: { xs: 2.5 },
+                      border: 'none',
+                      background: t.palette.mode === 'dark' ? alpha(t.palette.background.paper, 0.4) : alpha('#ffffff', 0.6),
+                      backdropFilter: 'blur(12px)',
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 2,
+                    })}
+                  >
+                    <Box
+                      sx={{
+                        width: 44,
+                        height: 44,
+                        borderRadius: '50%',
+                        display: "grid",
+                        placeItems: "center",
+                        bgcolor: alpha(stat.color, 0.1),
+                        color: stat.color,
+                        flexShrink: 0,
+                      }}
+                    >
+                      <stat.icon sx={{ fontSize: 24 }} />
+                    </Box>
+                    <Box>
+                      <Typography sx={{ fontSize: "1.5rem", fontWeight: 800, fontFamily: 'var(--font-epilogue)', lineHeight: 1, color: t => t.palette.mode === 'dark' ? '#ece1f4' : t.palette.text.primary }}>
+                        {stat.value}
+                      </Typography>
+                      <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600, fontSize: "0.75rem", textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                        {stat.label}
+                      </Typography>
+                    </Box>
+                  </Paper>
+                </Grid>
               ))}
-            </div>
-          ) : (
-            <div className="glass flex min-h-[300px] flex-col items-center justify-center rounded-2xl p-8 text-center">
-              <span className="text-4xl mb-4">🔍</span>
-              <p className="text-[var(--text-secondary)]">
-                {searchTerm.length > 0
-                  ? "No franchises match your search"
-                  : "Your library appears to be empty"}
-              </p>
-            </div>
-          )}
-        </div>
-      </main>
+            </Grid>
+
+            {/* ── Continue Watching Rail ── */}
+            {inProgressGroups.length > 0 && (
+              <Box>
+                <Typography variant="h5" sx={{ fontWeight: 800, fontFamily: 'var(--font-epilogue)', mb: 2 }}>
+                  Continue Watching
+                </Typography>
+                <Box sx={{
+                  display: 'flex', gap: 2, overflowX: 'auto', pb: 2, px: 0.5, mx: -0.5,
+                  scrollSnapType: 'x mandatory',
+                  '&::-webkit-scrollbar': { display: 'none' },
+                  scrollbarWidth: 'none',
+                }}>
+                  {inProgressGroups.map(group => {
+                    const mainEntry = group.main_timeline.find(e => e.status === "CURRENT") || group.main_timeline.find(e => e.episodes_watched && e.episodes_watched > 0) || group.main_timeline[0];
+                    return (
+                      <Paper
+                        key={`cw-${group.franchise_id}`}
+                        onClick={() => {
+                          document.getElementById('library-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                          setExpandedId(group.franchise_id);
+                        }}
+                        elevation={0}
+                        sx={(t) => ({
+                          width: 280, flexShrink: 0, scrollSnapAlign: 'start', cursor: 'pointer',
+                          borderRadius: 4, overflow: 'hidden', position: 'relative',
+                          bgcolor: t.palette.mode === 'dark' ? alpha(t.palette.background.paper, 0.8) : 'background.paper',
+                          border: `1px solid ${alpha(t.palette.divider, 0.4)}`,
+                          transition: 'transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.2s',
+                          '&:hover': {
+                            transform: 'translateY(-6px)',
+                            boxShadow: t.shadows[12],
+                            borderColor: alpha(t.palette.primary.main, 0.4),
+                          }
+                        })}
+                      >
+                        <Box sx={{ height: 160, backgroundImage: `url(${mainEntry?.cover_image})`, backgroundSize: 'cover', backgroundPosition: 'center', backgroundColor: 'action.disabledBackground' }}>
+                          <Box sx={{ width: '100%', height: '100%', background: 'linear-gradient(to top, rgba(0,0,0,0.8) 0%, transparent 100%)', display: 'flex', alignItems: 'flex-end', p: 2 }}>
+                            <Typography variant="caption" sx={{ color: '#fff', fontWeight: 700, bgcolor: 'rgba(0,0,0,0.6)', px: 1, py: 0.5, borderRadius: 1, backdropFilter: 'blur(4px)' }}>
+                              {mainEntry?.status === 'CURRENT' && mainEntry.episodes_watched ? `Watching Ep ${mainEntry.episodes_watched}` : `${mainEntry.episodes_watched || 0}/${mainEntry.episodes_total || '?'} Eps`}
+                            </Typography>
+                          </Box>
+                        </Box>
+                        <Box sx={{ p: 2.5 }}>
+                          <Typography variant="body1" sx={{ fontWeight: 800, fontFamily: 'var(--font-epilogue)', display: '-webkit-box', WebkitLineClamp: 1, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                            {group.canonical_title}
+                          </Typography>
+                          <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mt: 1.5 }}>
+                            <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
+                              {group.progress.percentage}% Complete
+                            </Typography>
+                            <PlayCircleFilledRoundedIcon color="primary" sx={{ opacity: 0.8 }} />
+                          </Stack>
+                          <LinearProgress 
+                            variant="determinate" 
+                            value={group.progress.percentage || 0} 
+                            sx={{ mt: 1, height: 6, borderRadius: 3, '& .MuiLinearProgress-bar': { borderRadius: 3, background: (t) => `linear-gradient(90deg, ${t.palette.primary.main}, ${t.palette.secondary.main})` } }} 
+                          />
+                        </Box>
+                      </Paper>
+                    )
+                  })}
+                </Box>
+              </Box>
+            )}
+
+            {/* ── Aura Selections (Plan to Watch) ── */}
+            {planningGroups.length > 0 && (
+              <Box>
+                <Typography variant="h5" sx={{ fontWeight: 800, fontFamily: 'var(--font-epilogue)', mb: 2 }}>
+                  Aura Selections
+                </Typography>
+                <Box sx={{
+                  display: 'flex', gap: 2, overflowX: 'auto', pb: 2, px: 0.5, mx: -0.5,
+                  scrollSnapType: 'x mandatory',
+                  '&::-webkit-scrollbar': { display: 'none' },
+                  scrollbarWidth: 'none',
+                }}>
+                  {planningGroups.map(group => {
+                    const mainEntry = group.main_timeline.find(e => e.status === "PLANNING") || group.main_timeline[0];
+                    return (
+                      <Box
+                        key={`aura-${group.franchise_id}`}
+                        onClick={() => {
+                          document.getElementById('library-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                          setExpandedId(group.franchise_id);
+                        }}
+                        sx={{
+                          width: 160, flexShrink: 0, scrollSnapAlign: 'start', cursor: 'pointer',
+                          borderRadius: 3, overflow: 'hidden', position: 'relative',
+                          transition: 'transform 0.2s, box-shadow 0.2s',
+                          '&:hover': {
+                            transform: 'translateY(-4px)',
+                            boxShadow: (t) => t.shadows[8],
+                          }
+                        }}
+                      >
+                        <Box sx={{ width: '100%', paddingTop: '140%', position: 'relative', overflow: 'hidden', borderRadius: 3 }}>
+                          <Box sx={{
+                            position: 'absolute', inset: 0,
+                            backgroundImage: `url(${mainEntry?.cover_image})`, backgroundSize: 'cover', backgroundPosition: 'center',
+                            transition: 'transform 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
+                            bgcolor: 'action.disabledBackground',
+                            '.MuiBox-root:hover &': { transform: 'scale(1.05)' }
+                          }} component="div" />
+                          <Box sx={{ position: 'absolute', inset: 0, background: 'linear-gradient(to top, rgba(0,0,0,0.9) 0%, transparent 60%)' }} />
+                          <Box sx={{ position: 'absolute', bottom: 0, left: 0, right: 0, p: 1.5 }}>
+                            <Typography variant="body2" sx={{ color: '#fff', fontWeight: 700, lineHeight: 1.2, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                              {group.canonical_title}
+                            </Typography>
+                          </Box>
+                        </Box>
+                      </Box>
+                    )
+                  })}
+                </Box>
+              </Box>
+            )}
+
+            <Box id="library-section" sx={{ pt: 4, mt: 4, borderTop: '1px solid', borderColor: 'divider' }}>
+              <Typography variant="h5" sx={{ fontWeight: 800, fontFamily: 'var(--font-epilogue)', mb: 3 }}>
+                Full Library
+              </Typography>
+
+            {/* ── Search + Filter Toolbar ── */}
+            <Paper
+              sx={(t) => ({
+                borderRadius: 2.5,
+                p: 2,
+                border: `1px solid ${alpha(t.palette.divider, 0.4)}`,
+                backdropFilter: "blur(12px)",
+              })}
+            >
+              <Stack spacing={1.5}>
+                <TextField
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  fullWidth
+                  placeholder="Search franchises..."
+                  size="small"
+                  InputProps={{
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <SearchRoundedIcon color="action" sx={{ fontSize: 18 }} />
+                      </InputAdornment>
+                    ),
+                  }}
+                  sx={{ "& .MuiOutlinedInput-root": { borderRadius: 2 } }}
+                />
+
+                <Stack direction={{ xs: "column", sm: "row" }} spacing={1} alignItems={{ sm: "center" }} justifyContent="space-between">
+                  <Box sx={{ overflowX: "auto", pb: 0.5 }}>
+                    <ToggleButtonGroup
+                      exclusive
+                      value={activeFilter}
+                      onChange={(_, v: FilterType | null) => { if (v) setActiveFilter(v); }}
+                      size="small"
+                      sx={{
+                        flexWrap: "nowrap",
+                        "& .MuiToggleButton-root": {
+                          textTransform: "none",
+                          fontWeight: 500,
+                          fontSize: "0.8rem",
+                          py: 0.5,
+                          px: { xs: 1.25, sm: 1.5 },
+                          whiteSpace: "nowrap",
+                        },
+                      }}
+                    >
+                      <ToggleButton value="all">All</ToggleButton>
+                      <ToggleButton value="complete">Complete</ToggleButton>
+                      <ToggleButton value="in-progress">In Progress</ToggleButton>
+                      <ToggleButton value="side_stories">Side Stories</ToggleButton>
+                    </ToggleButtonGroup>
+                  </Box>
+
+                  <TextField
+                    select
+                    size="small"
+                    value={sortOption}
+                    onChange={(e) => setSortOption(e.target.value as SortOption)}
+                    sx={{ minWidth: { xs: "100%", sm: 148 } }}
+                  >
+                    <MenuItem value="az">A to Z</MenuItem>
+                    <MenuItem value="za">Z to A</MenuItem>
+                    <MenuItem value="pct-high">% High → Low</MenuItem>
+                    <MenuItem value="pct-low">% Low → High</MenuItem>
+                    <MenuItem value="entries">Most Entries</MenuItem>
+                  </TextField>
+                </Stack>
+              </Stack>
+            </Paper>
+
+            {/* ── Scan Progress ── */}
+            {isScanning && (
+              <Paper
+                sx={(theme) => ({
+                  borderRadius: 3,
+                  p: 2.5,
+                  background:
+                    theme.palette.mode === "dark"
+                      ? `linear-gradient(135deg, ${alpha(theme.palette.primary.main, 0.08)}, ${alpha(theme.palette.background.paper, 0.8)})`
+                      : `linear-gradient(135deg, ${alpha(theme.palette.primary.light, 0.08)}, ${alpha("#FFFFFF", 0.95)})`,
+                  border: `1px solid ${alpha(theme.palette.primary.main, 0.1)}`,
+                })}
+              >
+                <Stack spacing={1.5}>
+                  <Stack direction="row" justifyContent="space-between" alignItems="center">
+                    <Stack direction="row" spacing={1.25} alignItems="center">
+                      <CircularProgress size={20} />
+                      <Typography variant="body1" sx={{ fontWeight: 700 }}>
+                        Scanning for sequels
+                      </Typography>
+                    </Stack>
+                    {scanProgress.total > 0 && (
+                      <Chip
+                        size="small"
+                        color="primary"
+                        label={`${scanProgress.current} / ${scanProgress.total}`}
+                      />
+                    )}
+                  </Stack>
+
+                  {scanProgress.total > 0 && (
+                    <LinearProgress
+                      variant="determinate"
+                      value={Math.round((scanProgress.current / scanProgress.total) * 100)}
+                      sx={(theme) => ({
+                        borderRadius: 999,
+                        height: 6,
+                        bgcolor: alpha(theme.palette.primary.main, 0.1),
+                        "& .MuiLinearProgress-bar": {
+                          borderRadius: 999,
+                          background: `linear-gradient(90deg, ${theme.palette.primary.main}, ${theme.palette.secondary.main})`,
+                        },
+                      })}
+                    />
+                  )}
+
+                  <Typography variant="caption" color="text.secondary">
+                    {scanProgress.total === 0
+                      ? "Preparing scan..."
+                      : scanProgress.current === 0
+                        ? "Starting scan..."
+                        : scanProgress.current >= scanProgress.total
+                          ? "Almost done..."
+                          : "Checking your completed anime for available sequels."}
+                  </Typography>
+                </Stack>
+              </Paper>
+            )}
+
+            {/* ── Sequel Alerts ── */}
+            {!isScanning && sequelAlerts.length > 0 && (
+              <Card
+                sx={(theme) => ({
+                  p: { xs: 2.5, md: 3 },
+                  borderRadius: 3,
+                  border: `1px solid ${alpha(theme.palette.divider, 0.4)}`,
+                  background:
+                    theme.palette.mode === "dark"
+                      ? `linear-gradient(135deg, ${alpha(theme.palette.background.paper, 0.95)}, ${alpha(
+                        theme.palette.primary.main,
+                        0.05
+                      )})`
+                      : undefined,
+                })}
+              >
+                <Stack spacing={2}>
+                  <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} justifyContent="space-between" alignItems={{ sm: "center" }}>
+                    <Box>
+                      <Typography variant="h6" sx={{ fontWeight: 800 }}>
+                        What to Watch Next
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        {sequelAlerts.filter((a) => a.alert_status === "available").length} available now
+                      </Typography>
+                    </Box>
+                    <Box sx={{ overflowX: "auto", pb: 0.5 }}>
+                      <ToggleButtonGroup
+                        exclusive
+                        size="small"
+                        value={sequelFilter}
+                        onChange={(_, v: string | null) => { if (v) setSequelFilter(v); }}
+                        sx={{ flexWrap: "nowrap", whiteSpace: "nowrap" }}
+                      >
+                        <ToggleButton value="all" sx={{ px: { xs: 1.5, sm: 2 }, fontSize: "0.75rem" }}>All</ToggleButton>
+                        <ToggleButton value="available" sx={{ px: { xs: 1.5, sm: 2 }, fontSize: "0.75rem" }}>Available</ToggleButton>
+                        <ToggleButton value="upcoming" sx={{ px: { xs: 1.5, sm: 2 }, fontSize: "0.75rem" }}>Upcoming</ToggleButton>
+                        <ToggleButton value="planned" sx={{ px: { xs: 1.5, sm: 2 }, fontSize: "0.75rem" }}>Planned</ToggleButton>
+                      </ToggleButtonGroup>
+                    </Box>
+                  </Stack>
+
+                  <Stack spacing={1.5}>
+                    {sequelAlerts
+                      .filter((alert) => {
+                        if (sequelFilter === "available") return alert.alert_status === "available";
+                        if (sequelFilter === "upcoming") return alert.alert_status === "upcoming";
+                        if (sequelFilter === "planned") return alert.alert_status === "planned";
+                        return true;
+                      })
+                      .slice(0, showAllSequels ? undefined : 5)
+                      .map((alert, index) => (
+                        <SequelAlertCard key={`${alert.franchise_id}-${index}`} alert={alert} />
+                      ))}
+                  </Stack>
+
+                  {sequelAlerts.length > 5 && (
+                    <Button variant="text" onClick={() => setShowAllSequels((value) => !value)} sx={{ textTransform: "none" }}>
+                      {showAllSequels ? "Show less" : `Show ${sequelAlerts.length - 5} more`}
+                    </Button>
+                  )}
+                </Stack>
+              </Card>
+            )}
+
+            {/* ── Franchise Library ── */}
+            <Stack spacing={2}>
+              {isLoading ? (
+                <Stack spacing={3}>
+                  <Box>
+                    <Typography variant="body1" sx={{ fontWeight: 700, mb: 0.5 }}>
+                      Loading your library...
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      Building franchise timelines and sequel suggestions.
+                    </Typography>
+                  </Box>
+
+                  <Stack spacing={1.5}>
+                    <SequelAlertCardSkeleton />
+                    <SequelAlertCardSkeleton />
+                  </Stack>
+
+                  <Stack spacing={2}>
+                    <FranchiseCardSkeleton />
+                    <FranchiseCardSkeleton />
+                    <FranchiseCardSkeleton />
+                  </Stack>
+                </Stack>
+              ) : error && !snapshot ? (
+                <Paper sx={{ borderRadius: 3, p: 5 }}>
+                  <Stack spacing={2} alignItems="center" textAlign="center">
+                    <Alert severity="error" sx={{ maxWidth: 520, width: "100%" }}>
+                      {errorMessage}
+                    </Alert>
+                    <Button onClick={() => refetch()} variant="contained">
+                      Retry
+                    </Button>
+                  </Stack>
+                </Paper>
+              ) : sortedGroups.length > 0 ? (
+                <Stack spacing={2.5}>
+                  <Stack direction="row" spacing={1.5} alignItems="flex-start">
+                    <Box
+                      sx={(theme) => ({
+                        width: 36,
+                        height: 36,
+                        borderRadius: 2,
+                        display: "grid",
+                        placeItems: "center",
+                        bgcolor: alpha(theme.palette.primary.main, 0.12),
+                        color: "primary.main",
+                        flexShrink: 0,
+                      })}
+                    >
+                      <TuneRoundedIcon sx={{ fontSize: 18 }} />
+                    </Box>
+                    <Box>
+                      <Typography variant="h6" sx={{ fontWeight: 800, mb: 0.25 }}>
+                        Franchise Library
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        Expand any franchise card for timeline details and manual overrides.
+                      </Typography>
+                    </Box>
+                  </Stack>
+
+                  {sortedGroups.map((franchise) => (
+                    <FranchiseCard
+                      key={franchise.franchise_id}
+                      franchise={franchise}
+                      isExpanded={expandedId === franchise.franchise_id}
+                      onExpand={(id) => setExpandedId((prev) => (prev === id ? null : id))}
+                      franchiseOptions={franchiseOptions}
+                      overrideTargets={overrideTargets}
+                      savingEntryId={overrideSavingEntryId}
+                      onSaveOverride={handleSaveOverride}
+                      onBlacklistFranchise={handleBlacklistFranchise}
+                      onBlacklistEntry={handleBlacklistEntry}
+                      blacklistingId={blacklistingId}
+                    />
+                  ))}
+                </Stack>
+              ) : (
+                <Paper sx={{ borderRadius: 3, p: 6 }}>
+                  <Stack spacing={1.5} alignItems="center" textAlign="center">
+                    <SearchRoundedIcon color="primary" sx={{ fontSize: 40 }} />
+                    <Typography variant="h6" sx={{ fontWeight: 800 }}>
+                      {searchTerm.length > 0
+                        ? "No franchises match your search"
+                        : "Your library appears to be empty"}
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      Try a broader search or refresh your synced library.
+                    </Typography>
+                  </Stack>
+                </Paper>
+              )}
+            </Stack>
+            </Box>
+
+            {/* ── Blacklist Manager ── */}
+            {blacklist.length > 0 && (
+              <Box sx={{ mt: 8, pt: 4, borderTop: "1px solid", borderColor: "divider" }}>
+                <Stack spacing={2}>
+                  <Stack direction="row" spacing={1.5} alignItems="center">
+                    <Box
+                      sx={(theme) => ({
+                        width: 32,
+                        height: 32,
+                        borderRadius: 1.5,
+                        display: "grid",
+                        placeItems: "center",
+                        bgcolor: alpha(theme.palette.error.main, 0.1),
+                        color: "error.main",
+                      })}
+                    >
+                      <ListAltRoundedIcon sx={{ fontSize: 16 }} />
+                    </Box>
+                    <Box>
+                      <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+                        Ignored Items
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        These franchises and entries will detect but will not show up in your "What to Watch Next" alerts.
+                      </Typography>
+                    </Box>
+                  </Stack>
+
+                  <Grid container spacing={1}>
+                    {blacklist.map((item) => (
+                      <Grid key={item.targetId} size={{ xs: 12, sm: 6, md: 4 }}>
+                        <Paper
+                          variant="outlined"
+                          sx={{
+                            p: 1.5,
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            borderRadius: 2,
+                            bgcolor: (t) => alpha(t.palette.background.default, 0.5),
+                          }}
+                        >
+                          <Box sx={{ minWidth: 0, mr: 1, flex: 1 }}>
+                            <Typography variant="body2" sx={{ fontWeight: 600 }} noWrap title={item.title}>
+                              {item.title}
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary">
+                              {item.type === "franchise" ? "Whole Franchise" : "Specific Sequel"}
+                            </Typography>
+                          </Box>
+                          <Button
+                            size="small"
+                            color="inherit"
+                            onClick={() => handleRemoveBlacklist(item.targetId)}
+                            sx={{ minWidth: 0, p: 0.5, px: 1, borderRadius: 1, textTransform: "none", fontSize: "0.75rem" }}
+                          >
+                            Restore
+                          </Button>
+                        </Paper>
+                      </Grid>
+                    ))}
+                  </Grid>
+                </Stack>
+              </Box>
+            )}
+          </Stack>
+        </Container>
+      </Box>
     </>
+  );
+}
+
+/* ── Page Export (Suspense boundary for useSearchParams) ── */
+export default function DashboardPage() {
+  return (
+    <Suspense
+      fallback={
+        <div
+          style={{
+            minHeight: "100dvh",
+            display: "grid",
+            placeItems: "center",
+          }}
+        />
+      }
+    >
+      <DashboardContent />
+    </Suspense>
   );
 }

@@ -12,7 +12,7 @@ export type UnifiedRelationType =
   | "compilation"
   | "contains"
   | "character"
-  | "other";
+  | "other"
 
 export const RELATION_PRIORITY: UnifiedRelationType[] = [
   "sequel",
@@ -28,8 +28,9 @@ export const RELATION_PRIORITY: UnifiedRelationType[] = [
   "compilation",
   "contains",
   "other",
-  // "character" intentionally excluded — never shown
-];
+  // "character" intentionally excluded from priority list — filtered out
+  // in groupRelatedAnime and never surfaced in the UI
+]
 
 export const RELATION_DISPLAY_LABELS: Record<UnifiedRelationType, string> = {
   sequel: "Sequel",
@@ -46,12 +47,13 @@ export const RELATION_DISPLAY_LABELS: Record<UnifiedRelationType, string> = {
   contains: "Contains",
   character: "Character",
   other: "Other",
-};
+}
 
-// AniList normalizer
 // NOTE: AniList's ALTERNATIVE maps to alternative_version by convention.
 // It cannot be distinguished from alternative_setting — known limitation.
 export function fromAniList(type: string): UnifiedRelationType {
+  // FIX: removed ?. — type is string, not string | undefined.
+  // map miss falls through to ?? "other" naturally.
   const map: Record<string, UnifiedRelationType> = {
     SEQUEL: "sequel",
     PREQUEL: "prequel",
@@ -65,50 +67,57 @@ export function fromAniList(type: string): UnifiedRelationType {
     CONTAINS: "contains",
     CHARACTER: "character",
     OTHER: "other",
-  };
-  return map[type?.toUpperCase()] ?? "other";
+  }
+  return map[type.toUpperCase()] ?? "other"
 }
 
-// MAL normalizer
-export function fromMAL(type: string): UnifiedRelationType {
+export function fromMAL(rawType: string): UnifiedRelationType {
+  if (!rawType) return "other"
+
+  const normalizedType = rawType
+    .toLowerCase()
+    .trim()
+    .replace(/[-\s]+/g, "_")
+
   const map: Record<string, UnifiedRelationType> = {
-    Sequel: "sequel",
-    Prequel: "prequel",
-    "Parent story": "parent_story",
-    "Full story": "full_story",
-    "Side story": "side_story",
-    Summary: "summary",
-    "Spin-off": "spin_off",
-    "Alternative version": "alternative_version",
-    "Alternative setting": "alternative_setting",
-    Character: "character",
-    Other: "other",
-  };
-  return map[type] ?? "other";
+    sequel: "sequel",
+    prequel: "prequel",
+    parent_story: "parent_story",
+    full_story: "full_story",
+    side_story: "side_story",
+    summary: "summary",
+    spin_off: "spin_off",
+    alternative_version: "alternative_version",
+    alternative_setting: "alternative_setting",
+    character: "character",
+    other: "other",
+  }
+
+  return map[normalizedType] ?? "other"
 }
 
-export type RelatedItem<T> = { node: T; relation_type: string };
+export type RelatedItem<T> = { node: T; relation_type: string }
 export type GroupedRelations<T> = {
-  type: UnifiedRelationType;
-  items: RelatedItem<T>[];
-}[];
+  type: UnifiedRelationType
+  items: RelatedItem<T>[]
+}[]
 
 export function groupRelatedAnime<T>(
   related: RelatedItem<T>[],
   source: "anilist" | "mal"
 ): GroupedRelations<T> {
-  const normalizer = source === "anilist" ? fromAniList : fromMAL;
-  const groups = new Map<UnifiedRelationType, RelatedItem<T>[]>();
+  const normalizer = source === "anilist" ? fromAniList : fromMAL
+  const groups = new Map<UnifiedRelationType, RelatedItem<T>[]>()
 
   for (const item of related) {
-    const unified = normalizer(item.relation_type);
-    if (unified === "character") continue; // always filtered
-    if (!groups.has(unified)) groups.set(unified, []);
-    groups.get(unified)!.push(item);
+    const unified = normalizer(item.relation_type)
+    if (unified === "character") continue
+    if (!groups.has(unified)) groups.set(unified, [])
+    groups.get(unified)!.push(item)
   }
 
   return RELATION_PRIORITY.filter((type) => groups.has(type)).map((type) => ({
     type,
     items: groups.get(type)!,
-  }));
+  }))
 }

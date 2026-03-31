@@ -1,18 +1,7 @@
-import type { FranchiseGroup, NormalisedEntry } from "./types"
+import type { FranchiseGroup, FranchiseOverride, NormalisedEntry } from "./types"
 
 // ── Constants ─────────────────────────────────────────
 
-// Relation types that define main timeline membership
-const MAIN_RELATION_TYPES = new Set([
-  "sequel",
-  "prequel",
-  "alternative_version",
-  "alternative_setting",
-])
-
-// Relation types used for grouping entries into franchises
-// CHARACTER and OTHER intentionally excluded — too loose, cause
-// unrelated franchises to merge (e.g. AoT + Fire Force + Slime)
 const GROUPING_RELATION_TYPES = new Set([
   "sequel",
   "prequel",
@@ -22,12 +11,12 @@ const GROUPING_RELATION_TYPES = new Set([
   "parent_story",
   "spin_off",
   "summary",
+  "full_story",
 ])
 
-// Keywords too generic to use for title-similarity merging
 const BLOCKED_KEYWORDS = new Set([
   "dragon", "one", "my", "is", "in", "no", "to",
-  "new", "big", "monsters", "re", "x", "k", "a",
+  "new", "big", "monsters", "x", "k", "a",
   "an", "the", "of", "de", "la", "el", "war", "log",
   "mix", "dx", "ex", "gt", "z", "r", "ii", "iii",
   "carnival", "special", "extra", "movie", "film",
@@ -40,25 +29,18 @@ function classifyEntry(
   groupEntries: NormalisedEntry[],
 ): "main" | "supplementary" {
 
-  // TV and TV_SHORT → always main
   if (entry.type === "TV" || entry.type === "TV_SHORT") return "main"
 
-  // ── NEW: Check PARENT relation first ──────────────
-  // If ANY relation to a group member is PARENT type
-  // this entry is a child/spinoff of that series → side story
-  // e.g. Strong World PARENT → ONE PIECE TV → side story
   const hasParentRelation = entry.relations.some(r =>
     r.relationType === "parent_story" &&
     groupEntries.some(ge => ge.platform_id === r.id)
   )
   if (hasParentRelation) return "supplementary"
-  // ──────────────────────────────────────────────────
 
   const relationToGroup = entry.relations.find((r) =>
     groupEntries.some((ge) => ge.platform_id === r.id),
   )
 
-  // Root entry with no relations to group
   if (!relationToGroup) {
     const groupHasTV = groupEntries.some(
       e => e.type === "TV" || e.type === "TV_SHORT"
@@ -66,31 +48,16 @@ function classifyEntry(
     return groupHasTV ? "supplementary" : "main"
   }
 
-  // ALTERNATIVE_VERSION / SETTING → main
   if (
     relationToGroup.relationType === "alternative_version" ||
     relationToGroup.relationType === "alternative_setting"
   ) return "main"
 
-  // MOVIE, OVA, ONA, SPECIAL, MUSIC
   if (["MOVIE", "OVA", "ONA", "SPECIAL", "MUSIC"].includes(entry.type)) {
-
-    if (relationToGroup.relationType === "prequel") return "main"
-
-    if (relationToGroup.relationType === "sequel") {
-      const somethingPrecedesThis = groupEntries.some(ge =>
-        ge.platform_id !== entry.platform_id &&
-        ge.relations.some(r =>
-          r.id === entry.platform_id &&
-          r.relationType === "sequel"
-        )
-      )
-      const groupHasTV = groupEntries.some(
-        e => e.type === "TV" || e.type === "TV_SHORT"
-      )
-      if (!somethingPrecedesThis && !groupHasTV) return "main"
-      return "supplementary"
-    }
+    if (
+      relationToGroup.relationType === "sequel" ||
+      relationToGroup.relationType === "prequel"
+    ) return "main"
 
     return "supplementary"
   }
@@ -106,7 +73,6 @@ function findFranchiseRoot(groupEntries: NormalisedEntry[]): NormalisedEntry {
   )
 
   if (tvEntries.length > 0) {
-    // Find TV entries with no prequel pointing to another group member
     const rootCandidates = tvEntries.filter(
       (entry) =>
         !entry.relations.some(
@@ -119,7 +85,6 @@ function findFranchiseRoot(groupEntries: NormalisedEntry[]): NormalisedEntry {
     if (rootCandidates.length === 1) return rootCandidates[0]
 
     if (rootCandidates.length > 1) {
-      // Prefer shortest title among candidates (most likely the true root)
       const byYear = [...rootCandidates].sort(
         (a, b) => (a.start_year ?? 9999) - (b.start_year ?? 9999),
       )
@@ -130,13 +95,11 @@ function findFranchiseRoot(groupEntries: NormalisedEntry[]): NormalisedEntry {
       return sameYear.sort((a, b) => a.title.length - b.title.length)[0]
     }
 
-    // All TV entries have prequels → return earliest TV
     return tvEntries.sort(
       (a, b) => (a.start_year ?? 9999) - (b.start_year ?? 9999),
     )[0]
   }
 
-  // No TV entries → try Movie
   const movieEntries = groupEntries.filter((e) => e.type === "MOVIE")
   if (movieEntries.length > 0) {
     return movieEntries.sort(
@@ -144,7 +107,6 @@ function findFranchiseRoot(groupEntries: NormalisedEntry[]): NormalisedEntry {
     )[0]
   }
 
-  // Absolute fallback → shortest non-all-caps title
   const nonCapsEntries = groupEntries.filter(
     (e) => e.title !== e.title.toUpperCase(),
   )
@@ -159,6 +121,17 @@ function mergeByTitleSimilarity(
   parent: Map<number, number>,
   find: (id: number) => number,
 ): Map<number, NormalisedEntry[]> {
+  function extractBaseTitle(title: string): string {
+    return title
+      .toLowerCase()
+      .replace(/[:\-–—]/g, " ")
+      .replace(/\([^)]*\)/g, "")
+      .replace(/\b(season|part|cour|the|a|an|movie|film|ova|ona|special|recap|\d+(st|nd|rd|th))\b/gi, "")
+      .replace(/\b\d+\b/g, "")
+      .replace(/\s+/g, " ")
+      .trim()
+  }
+
   function extractKeyword(title: string): string {
     return title
       .toLowerCase()
@@ -168,16 +141,15 @@ function mergeByTitleSimilarity(
       .trim()
   }
 
+  // Pass 1: Exact keyword match
   const keywordToRoot = new Map<string, number>()
 
   groups.forEach((entries, rootId) => {
-    // Use shortest title as representative — most likely the root
     const representativeTitle = [...entries].sort(
       (a, b) => a.title.length - b.title.length,
     )[0].title
 
     const keyword = extractKeyword(representativeTitle)
-
     if (keyword.length < 4) return
     if (BLOCKED_KEYWORDS.has(keyword)) return
 
@@ -191,6 +163,50 @@ function mergeByTitleSimilarity(
       }
     }
   })
+
+  // Pass 2: Base title containment
+  const baseTitleToRoot = new Map<string, number>()
+  const baseTitles: Array<{ base: string; rootId: number }> = []
+
+  groups.forEach((entries, rootId) => {
+    const representativeTitle = [...entries].sort(
+      (a, b) => a.title.length - b.title.length,
+    )[0].title
+
+    const base = extractBaseTitle(representativeTitle)
+    if (base.length < 6) return
+    if (BLOCKED_KEYWORDS.has(base)) return
+
+    baseTitles.push({ base, rootId })
+
+    if (!baseTitleToRoot.has(base)) {
+      baseTitleToRoot.set(base, rootId)
+    } else {
+      const existingRoot = find(baseTitleToRoot.get(base)!)
+      const thisRoot = find(rootId)
+      if (existingRoot !== thisRoot) {
+        parent.set(thisRoot, existingRoot)
+      }
+    }
+  })
+
+  baseTitles.sort((a, b) => a.base.length - b.base.length)
+  for (let i = 0; i < baseTitles.length; i++) {
+    for (let j = i + 1; j < baseTitles.length; j++) {
+      const shorter = baseTitles[i].base
+      const longer = baseTitles[j].base
+      if (shorter.length < 6) continue
+      if (BLOCKED_KEYWORDS.has(shorter)) continue
+
+      if (longer.startsWith(shorter + " ") || longer === shorter) {
+        const existingRoot = find(baseTitles[i].rootId)
+        const thisRoot = find(baseTitles[j].rootId)
+        if (existingRoot !== thisRoot) {
+          parent.set(thisRoot, existingRoot)
+        }
+      }
+    }
+  }
 
   // Rebuild groups after merging
   const newGroups = new Map<number, NormalisedEntry[]>()
@@ -209,15 +225,146 @@ function mergeByTitleSimilarity(
 // ── Helpers ───────────────────────────────────────────
 
 function toTitleCase(str: string): string {
-  // If string is all caps (like "ONE PIECE"), convert to title case
   if (str === str.toUpperCase() && str.length > 1) {
     return str.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase())
   }
-  // If first char is lowercase, capitalise it
   if (str.charAt(0) === str.charAt(0).toLowerCase()) {
     return str.charAt(0).toUpperCase() + str.slice(1)
   }
   return str
+}
+
+function buildFranchiseGroup(
+  cluster: NormalisedEntry[],
+  forcedFranchiseId?: string,
+): FranchiseGroup | null {
+  if (cluster.length === 0) return null
+
+  const mainTimeline = cluster.filter(
+    (entry) => classifyEntry(entry, cluster) === "main",
+  )
+  const side_stories = cluster.filter(
+    (entry) => classifyEntry(entry, cluster) === "supplementary",
+  )
+
+  if (mainTimeline.length === 0) {
+    mainTimeline.push(...side_stories.splice(0))
+  }
+
+  const sortFn = (a: NormalisedEntry, b: NormalisedEntry) =>
+    (a.start_year ?? 9999) - (b.start_year ?? 9999) || a.id - b.id
+  mainTimeline.sort(sortFn)
+  side_stories.sort(sortFn)
+
+  const rootEntry = findFranchiseRoot(cluster)
+  const mainTimelineSorted = [...mainTimeline].sort(
+    (a, b) => (a.start_year ?? 9999) - (b.start_year ?? 9999),
+  )
+
+  const coverEntry =
+    mainTimelineSorted.find(
+      (entry) => (entry.type === "TV" || entry.type === "TV_SHORT") && entry.cover_image,
+    ) ??
+    mainTimelineSorted.find((entry) => entry.type === "MOVIE" && entry.cover_image) ??
+    mainTimelineSorted.find((entry) => entry.cover_image) ??
+    rootEntry
+
+  const isDonghua = cluster.some((entry) => entry.country_of_origin === "CN")
+
+  let completedCount: number
+  let totalCount: number
+  let percentage: number
+
+  if (isDonghua) {
+    const validEntries = mainTimeline.filter((entry) => entry.episodes_total > 0)
+
+    if (validEntries.length === 0) {
+      completedCount = mainTimeline.filter((entry) => entry.user_completed).length
+      totalCount = mainTimeline.length
+      percentage = totalCount > 0 ? Math.floor((completedCount / totalCount) * 100) : 0
+    } else {
+      totalCount = validEntries.reduce((sum, entry) => sum + entry.episodes_total, 0)
+      // FIX: episodes_watched is typed as number, ?? 0 was redundant
+      completedCount = validEntries.reduce((sum, entry) => {
+        return sum + Math.min(entry.episodes_watched, entry.episodes_total)
+      }, 0)
+      percentage = Math.min(Math.floor((completedCount / totalCount) * 100), 100)
+    }
+  } else {
+    totalCount = mainTimeline.length
+    completedCount = mainTimeline.filter((entry) => entry.user_completed).length
+    percentage = totalCount > 0 ? Math.floor((completedCount / totalCount) * 100) : 0
+  }
+
+  const fullyCompleted =
+    percentage === 100 && side_stories.every((entry) => entry.user_completed)
+
+  return {
+    franchise_id: forcedFranchiseId ?? rootEntry.platform_id.toString(),
+    canonical_title: toTitleCase(rootEntry.title),
+    cover_image: coverEntry.cover_image,
+    is_donghua: isDonghua,
+    main_timeline: mainTimeline,
+    side_stories,
+    has_pending_sequel: false,
+    pending_sequel_count: 0,
+    progress: {
+      main_timeline_total: totalCount,
+      main_timeline_completed: completedCount,
+      percentage,
+      fully_completed: fullyCompleted,
+    },
+  }
+}
+
+export function applyFranchiseOverrides(
+  groups: FranchiseGroup[],
+  overrides: FranchiseOverride[],
+): FranchiseGroup[] {
+  if (overrides.length === 0) return groups
+
+  const groupEntries = new Map<string, NormalisedEntry[]>()
+  const entriesById = new Map<number, NormalisedEntry>()
+
+  groups.forEach((group) => {
+    const entries = [...group.main_timeline, ...group.side_stories]
+    groupEntries.set(group.franchise_id, entries)
+    entries.forEach((entry) => {
+      entriesById.set(entry.platform_id, entry)
+    })
+  })
+
+  overrides.forEach((override) => {
+    const entry = entriesById.get(override.entryId)
+    if (!entry) return
+
+    groupEntries.forEach((entries, franchiseId) => {
+      const nextEntries = entries.filter((item) => item.platform_id !== override.entryId)
+      if (nextEntries.length === 0) {
+        groupEntries.delete(franchiseId)
+      } else {
+        groupEntries.set(franchiseId, nextEntries)
+      }
+    })
+
+    const targetEntries = groupEntries.get(override.targetFranchiseId) ?? []
+    if (!targetEntries.some((item) => item.platform_id === override.entryId)) {
+      targetEntries.push(entry)
+    }
+    groupEntries.set(override.targetFranchiseId, targetEntries)
+  })
+
+  const result: FranchiseGroup[] = []
+  groupEntries.forEach((entries, franchiseId) => {
+    const uniqueEntries = Array.from(
+      new Map(entries.map((entry) => [entry.platform_id, entry])).values()
+    )
+    const group = buildFranchiseGroup(uniqueEntries, franchiseId)
+    if (group) result.push(group)
+  })
+
+  result.sort((a, b) => a.canonical_title.localeCompare(b.canonical_title))
+  return result
 }
 
 // ── Main Export ───────────────────────────────────────
@@ -226,10 +373,6 @@ export function buildFranchiseGroups(
   entries: NormalisedEntry[],
 ): FranchiseGroup[] {
   console.log("Total entries received:", entries.length)
-
-  // Build lookup map
-  const entryMap = new Map<number, NormalisedEntry>()
-  entries.forEach((e) => entryMap.set(e.platform_id, e))
 
   // Union-Find with bridge nodes
   const parent = new Map<number, number>()
@@ -251,7 +394,6 @@ export function buildFranchiseGroups(
     }
   }
 
-  // Union entries via relations — including bridge nodes
   entries.forEach((entry) => {
     entry.relations.forEach((relation) => {
       if (!GROUPING_RELATION_TYPES.has(relation.relationType)) return
@@ -262,7 +404,6 @@ export function buildFranchiseGroups(
     })
   })
 
-  // Build initial clusters
   let clusters = new Map<number, NormalisedEntry[]>()
   entries.forEach((entry) => {
     const root = find(entry.platform_id)
@@ -270,112 +411,20 @@ export function buildFranchiseGroups(
     clusters.get(root)!.push(entry)
   })
 
-  // Merge by title similarity as fallback
+  const singletonsBefore = [...clusters.values()].filter(c => c.length === 1).length
+  console.log(`Clusters after relation-based grouping: ${clusters.size} (${singletonsBefore} singletons)`)
+
   clusters = mergeByTitleSimilarity(clusters, parent, find)
 
-  console.log("Clusters formed:", clusters.size)
+  const singletonsAfter = [...clusters.values()].filter(c => c.length === 1).length
+  console.log(`Clusters after title merge: ${clusters.size} (${singletonsAfter} singletons)`)
 
-  // Build FranchiseGroup for each cluster
   const groups: FranchiseGroup[] = []
-
   clusters.forEach((cluster) => {
-    const mainTimeline = cluster.filter(
-      (e) => classifyEntry(e, cluster) === "main",
-    )
-    const side_stories = cluster.filter(
-      (e) => classifyEntry(e, cluster) === "supplementary",
-    )
-
-    // If nothing qualified as main, promote everything
-    if (mainTimeline.length === 0) {
-      mainTimeline.push(...side_stories.splice(0))
-    }
-
-    // Sort by year then id
-    const sortFn = (a: NormalisedEntry, b: NormalisedEntry) =>
-      (a.start_year ?? 9999) - (b.start_year ?? 9999) || a.id - b.id
-    mainTimeline.sort(sortFn)
-    side_stories.sort(sortFn)
-
-    const rootEntry = findFranchiseRoot(cluster)
-
-    // Cover priority:
-    // 1. First entry of main timeline that is TV (sorted by year)
-    // 2. First entry of main timeline that is MOVIE
-    // 3. Root entry fallback
-    const mainTimelineSorted = [...mainTimeline].sort(
-      (a, b) => (a.start_year ?? 9999) - (b.start_year ?? 9999),
-    )
-
-    const coverEntry =
-      mainTimelineSorted.find(
-        (e) => (e.type === "TV" || e.type === "TV_SHORT") && e.cover_image,
-      ) ??
-      mainTimelineSorted.find((e) => e.type === "MOVIE" && e.cover_image) ??
-      mainTimelineSorted.find((e) => e.cover_image) ??
-      rootEntry
-    const isDonghua = cluster.some((e) => e.country_of_origin === "CN")
-
-    // Progress calculation
-    let completedCount: number
-    let totalCount: number
-    let percentage: number
-
-    if (isDonghua) {
-      const validEntries = mainTimeline.filter((e) => e.episodes_total > 0)
-
-      if (validEntries.length === 0) {
-        completedCount = mainTimeline.filter((e) => e.user_completed).length
-        totalCount = mainTimeline.length
-        percentage =
-          totalCount > 0
-            ? Math.floor((completedCount / totalCount) * 100)
-            : 0
-      } else {
-        totalCount = validEntries.reduce((s, e) => s + e.episodes_total, 0)
-        completedCount = validEntries.reduce((s, e) => {
-          const watched = Math.min(
-            e.episodes_watched ?? 0,
-            e.episodes_total,
-          )
-          return s + watched
-        }, 0)
-        percentage = Math.min(
-          Math.floor((completedCount / totalCount) * 100),
-          100,
-        )
-      }
-    } else {
-      totalCount = mainTimeline.length
-      completedCount = mainTimeline.filter((e) => e.user_completed).length
-      percentage =
-        totalCount > 0
-          ? Math.floor((completedCount / totalCount) * 100)
-          : 0
-    }
-
-    const fullyCompleted =
-      percentage === 100 && side_stories.every((e) => e.user_completed)
-
-    const canonical_title = toTitleCase(rootEntry.title)
-
-    groups.push({
-      franchise_id: rootEntry.platform_id.toString(),
-      canonical_title,
-      cover_image: coverEntry.cover_image,
-      is_donghua: isDonghua,
-      main_timeline: mainTimeline,
-      side_stories,
-      progress: {
-        main_timeline_total: totalCount,
-        main_timeline_completed: completedCount,
-        percentage,
-        fully_completed: fullyCompleted,
-      },
-    })
+    const group = buildFranchiseGroup(cluster)
+    if (group) groups.push(group)
   })
 
-  // Sort alphabetically
   groups.sort((a, b) => a.canonical_title.localeCompare(b.canonical_title))
 
   console.log("Total franchise groups formed:", groups.length)

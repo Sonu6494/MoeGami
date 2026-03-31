@@ -20,7 +20,7 @@ export async function POST(request: NextRequest) {
     }
 
     return NextResponse.json(data)
-  } catch (error) {
+  } catch {
     return NextResponse.json(
       { error: 'MAL proxy error' },
       { status: 500 }
