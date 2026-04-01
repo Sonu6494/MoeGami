@@ -995,9 +995,30 @@ function DashboardContent() {
             )}
 
             <Box id="library-section" sx={{ pt: 4, mt: 4, borderTop: '1px solid', borderColor: 'divider' }}>
-              <Typography variant="h5" sx={{ fontWeight: 800, fontFamily: 'var(--font-epilogue)', mb: 3 }}>
-                Full Library
-              </Typography>
+              <Stack direction="row" spacing={1.5} alignItems="flex-start" sx={{ mb: 3 }}>
+                <Box
+                  sx={(theme) => ({
+                    width: 38,
+                    height: 38,
+                    borderRadius: 2.5,
+                    display: "grid",
+                    placeItems: "center",
+                    bgcolor: alpha(theme.palette.primary.main, 0.12),
+                    color: "primary.main",
+                    flexShrink: 0,
+                  })}
+                >
+                  <TuneRoundedIcon sx={{ fontSize: 20 }} />
+                </Box>
+                <Box>
+                  <Typography variant="h5" sx={{ fontWeight: 800, fontFamily: 'var(--font-epilogue)', lineHeight: 1.1 }}>
+                    Franchise Library
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                    Expand any franchise card for timeline details and manual overrides.
+                  </Typography>
+                </Box>
+              </Stack>
 
             {/* ── Search + Filter Toolbar ── */}
             <Paper
@@ -1166,31 +1187,7 @@ function DashboardContent() {
                 </Paper>
               ) : sortedGroups.length > 0 ? (
                 <Stack spacing={2.5}>
-                  <Stack direction="row" spacing={1.5} alignItems="flex-start">
-                    <Box
-                      sx={(theme) => ({
-                        width: 36,
-                        height: 36,
-                        borderRadius: 2,
-                        display: "grid",
-                        placeItems: "center",
-                        bgcolor: alpha(theme.palette.primary.main, 0.12),
-                        color: "primary.main",
-                        flexShrink: 0,
-                      })}
-                    >
-                      <TuneRoundedIcon sx={{ fontSize: 18 }} />
-                    </Box>
-                    <Box>
-                      <Typography variant="h6" sx={{ fontWeight: 800, mb: 0.25 }}>
-                        Franchise Library
-                      </Typography>
-                      <Typography variant="body2" color="text.secondary">
-                        Expand any franchise card for timeline details and manual overrides.
-                      </Typography>
-                    </Box>
-                  </Stack>
-
+                  {/* Secondary library header removed to fix clutter */}
                   {sortedGroups.map((franchise) => (
                     <FranchiseCard
                       key={franchise.franchise_id}
