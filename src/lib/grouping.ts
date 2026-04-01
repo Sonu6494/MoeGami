@@ -53,11 +53,13 @@ function classifyEntry(
     relationToGroup.relationType === "alternative_setting"
   ) return "main"
 
-  if (["MOVIE", "OVA", "ONA", "SPECIAL", "MUSIC"].includes(entry.type)) {
-    if (
-      relationToGroup.relationType === "sequel" ||
-      relationToGroup.relationType === "prequel"
-    ) return "main"
+  if (["MOVIE", "OVA", "ONA", "SPECIAL", "MUSIC", "UNKNOWN"].includes(entry.type)) {
+    const isSequelOrPrequel = entry.relations.some((r) =>
+      (r.relationType === "sequel" || r.relationType === "prequel") &&
+      groupEntries.some((ge) => ge.platform_id === r.id)
+    )
+
+    if (isSequelOrPrequel) return "main"
 
     return "supplementary"
   }

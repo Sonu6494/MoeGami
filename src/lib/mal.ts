@@ -265,6 +265,7 @@ export async function fetchMALRelations(
     if (!entry) return false
 
     const relations = (media.relations?.edges ?? [])
+      .filter((edge: any) => edge.node?.type === "ANIME")
       .map((edge: any) => {
         const nodeMalId =
           edge.node?.idMal ??
