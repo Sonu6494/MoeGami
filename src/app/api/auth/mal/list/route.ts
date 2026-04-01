@@ -29,17 +29,22 @@ export async function GET() {
   }
 
   try {
-    // Fetch MAL username alongside the list
+    // Fetch MAL username and profile picture alongside the list
     const [userRes, rawEntries] = await Promise.all([
-      fetch('https://api.myanimelist.net/v2/users/@me?fields=name', {
+      fetch('https://api.myanimelist.net/v2/users/@me?fields=name,picture', {
         headers: { Authorization: `Bearer ${accessToken}` },
       }),
       fetchMALUserList(accessToken),
     ])
 
-    const malUsername = userRes.ok
-      ? (await userRes.json()).name ?? ""
-      : ""
+    let malUsername = ""
+    let malAvatarUrl = null
+    
+    if (userRes.ok) {
+      const userData = await userRes.json();
+      malUsername = userData.name ?? "";
+      if (userData.picture) malAvatarUrl = userData.picture;
+    }
 
     if (malUsername) {
       const supabase = getSupabaseServerClient()
@@ -80,7 +85,7 @@ export async function GET() {
     }
 
     const normalised = normaliseMALEntries(rawEntries)
-    return NextResponse.json({ entries: normalised, malUsername })
+    return NextResponse.json({ entries: normalised, malUsername, malAvatarUrl })
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown MAL error'
     if (message === 'MAL token expired') {

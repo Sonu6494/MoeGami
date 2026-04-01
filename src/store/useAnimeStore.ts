@@ -11,6 +11,7 @@ import type {
 interface PersistedAnimeStore {
   username: string
   malUsername: string
+  malAvatarUrl: string | null
   platform: Platform
   theme: "dark" | "light"
 }
@@ -25,7 +26,7 @@ interface AnimeStore extends PersistedAnimeStore {
   error: string | null
 
   setUsername: (username: string) => void
-  setMalUsername: (malUsername: string) => void
+  setMalUsername: (malUsername: string, avatarUrl?: string | null) => void
   setPlatform: (platform: Platform) => void
   setRawEntries: (entries: NormalisedEntry[]) => void
   setFranchiseGroups: (groups: FranchiseGroup[]) => void
@@ -42,6 +43,7 @@ export const useAnimeStore = create<AnimeStore>()(
     (set) => ({
       username: "",
       malUsername: "",
+      malAvatarUrl: null,
       platform: "ANILIST",
       theme: "light",
       rawEntries: [],
@@ -54,7 +56,7 @@ export const useAnimeStore = create<AnimeStore>()(
       error: null,
 
       setUsername: (username) => set({ username }),
-      setMalUsername: (malUsername) => set({ malUsername }),
+      setMalUsername: (malUsername, avatarUrl) => set((s) => ({ malUsername, malAvatarUrl: avatarUrl !== undefined ? avatarUrl : s.malAvatarUrl })),
       setPlatform: (platform) => set({ platform }),
       setRawEntries: (rawEntries) => set({ rawEntries }),
       setFranchiseGroups: (franchiseGroups) => set({ franchiseGroups }),
@@ -75,6 +77,7 @@ export const useAnimeStore = create<AnimeStore>()(
         return {
           username: state?.username ?? "",
           malUsername: state?.malUsername ?? "",
+          malAvatarUrl: state?.malAvatarUrl ?? null,
           theme: state?.theme === "dark" ? "dark" : "light",
           platform: state?.platform ?? "ANILIST",
         }
@@ -82,6 +85,7 @@ export const useAnimeStore = create<AnimeStore>()(
       partialize: (state): PersistedAnimeStore => ({
         username: state.username,
         malUsername: state.malUsername,
+        malAvatarUrl: state.malAvatarUrl,
         theme: state.theme,
         platform: state.platform,
       }),

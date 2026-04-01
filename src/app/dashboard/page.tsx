@@ -240,7 +240,7 @@ function DashboardContent() {
 
         const json = await response.json();
         if (json.malUsername) {
-          setMalUsername(json.malUsername);
+          setMalUsername(json.malUsername, json.malAvatarUrl);
           accountKey = json.malUsername;
         }
         entries = json.entries;
@@ -822,31 +822,33 @@ function DashboardContent() {
             )}
 
             {/* ── Quick Stats Row ── */}
-            <Grid container spacing={2}>
-              {[
-                { value: stats.inProgress, label: "Watching", icon: TrendingUpRoundedIcon, color: "#bd9dff" },
-                { value: stats.completed, label: "Completed", icon: CheckCircleRoundedIcon, color: "#10b981" },
-                { value: stats.franchises, label: "Franchises", icon: FolderCopyRoundedIcon, color: "#c38bf5" },
-                { value: stats.entries, label: "Library Entries", icon: ListAltRoundedIcon, color: "#67E8F9" },
-              ].map((stat) => (
-                <Grid key={stat.label} size={{ xs: 6, md: 3 }}>
-                  <Paper
-                    elevation={0}
-                    sx={(t) => ({
-                      borderRadius: 4,
-                      p: { xs: 2.5 },
-                      border: 'none',
-                      background: t.palette.mode === 'dark' ? alpha(t.palette.background.paper, 0.4) : alpha('#ffffff', 0.6),
-                      backdropFilter: 'blur(12px)',
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 2,
-                    })}
-                  >
+            <Paper
+              elevation={0}
+              sx={(t) => ({
+                borderRadius: 4,
+                p: { xs: 2, md: 2.5 },
+                border: 'none',
+                background: t.palette.mode === 'dark' ? alpha(t.palette.background.paper, 0.4) : alpha('#ffffff', 0.6),
+                backdropFilter: 'blur(12px)',
+                display: "flex",
+                flexDirection: { xs: "column", sm: "row" },
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 2,
+              })}
+            >
+              <Stack direction="row" sx={{ width: "100%", overflowX: "auto", "&::-webkit-scrollbar": { display: "none" }, scrollbarWidth: "none" }} spacing={{ xs: 3, md: 5 }} justifyContent={{ xs: "space-between", sm: "space-around" }}>
+                {[
+                  { value: stats.inProgress, label: "Watching", icon: TrendingUpRoundedIcon, color: "#bd9dff" },
+                  { value: stats.completed, label: "Completed", icon: CheckCircleRoundedIcon, color: "#10b981" },
+                  { value: stats.franchises, label: "Franchises", icon: FolderCopyRoundedIcon, color: "#c38bf5" },
+                  { value: stats.entries, label: "Library Entries", icon: ListAltRoundedIcon, color: "#67E8F9" },
+                ].map((stat) => (
+                  <Stack key={stat.label} direction="row" alignItems="center" spacing={1.5} sx={{ flexShrink: 0 }}>
                     <Box
                       sx={{
-                        width: 44,
-                        height: 44,
+                        width: 40,
+                        height: 40,
                         borderRadius: '50%',
                         display: "grid",
                         placeItems: "center",
@@ -855,20 +857,20 @@ function DashboardContent() {
                         flexShrink: 0,
                       }}
                     >
-                      <stat.icon sx={{ fontSize: 24 }} />
+                      <stat.icon sx={{ fontSize: 20 }} />
                     </Box>
                     <Box>
-                      <Typography sx={{ fontSize: "1.5rem", fontWeight: 800, fontFamily: 'var(--font-epilogue)', lineHeight: 1, color: t => t.palette.mode === 'dark' ? '#ece1f4' : t.palette.text.primary }}>
+                      <Typography sx={{ fontSize: "1.25rem", fontWeight: 800, fontFamily: 'var(--font-epilogue)', lineHeight: 1, color: t => t.palette.mode === 'dark' ? '#ece1f4' : t.palette.text.primary }}>
                         {stat.value}
                       </Typography>
-                      <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600, fontSize: "0.75rem", textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                      <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600, fontSize: "0.7rem", textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                         {stat.label}
                       </Typography>
                     </Box>
-                  </Paper>
-                </Grid>
-              ))}
-            </Grid>
+                  </Stack>
+                ))}
+              </Stack>
+            </Paper>
 
             {/* ── Continue Watching Rail ── */}
             {inProgressGroups.length > 0 && (
@@ -893,11 +895,12 @@ function DashboardContent() {
                         }}
                         elevation={0}
                         sx={(t) => ({
-                          width: 280, flexShrink: 0, scrollSnapAlign: 'start', cursor: 'pointer',
-                          borderRadius: 4, overflow: 'hidden', position: 'relative',
+                          width: 160, flexShrink: 0, scrollSnapAlign: 'start', cursor: 'pointer',
+                          borderRadius: 3, overflow: 'hidden', position: 'relative',
                           bgcolor: t.palette.mode === 'dark' ? alpha(t.palette.background.paper, 0.8) : 'background.paper',
                           border: `1px solid ${alpha(t.palette.divider, 0.4)}`,
                           transition: 'transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.2s',
+                          display: "flex", flexDirection: "column",
                           '&:hover': {
                             transform: 'translateY(-6px)',
                             boxShadow: t.shadows[12],
@@ -905,28 +908,31 @@ function DashboardContent() {
                           }
                         })}
                       >
-                        <Box sx={{ height: 160, backgroundImage: `url(${mainEntry?.cover_image})`, backgroundSize: 'cover', backgroundPosition: 'center', backgroundColor: 'action.disabledBackground' }}>
-                          <Box sx={{ width: '100%', height: '100%', background: 'linear-gradient(to top, rgba(0,0,0,0.8) 0%, transparent 100%)', display: 'flex', alignItems: 'flex-end', p: 2 }}>
-                            <Typography variant="caption" sx={{ color: '#fff', fontWeight: 700, bgcolor: 'rgba(0,0,0,0.6)', px: 1, py: 0.5, borderRadius: 1, backdropFilter: 'blur(4px)' }}>
-                              {mainEntry?.status === 'CURRENT' && mainEntry.episodes_watched ? `Watching Ep ${mainEntry.episodes_watched}` : `${mainEntry.episodes_watched || 0}/${mainEntry.episodes_total || '?'} Eps`}
+                        <Box sx={{ width: "100%", paddingTop: "150%", position: "relative", backgroundColor: 'action.disabledBackground', overflow: "hidden" }}>
+                          <Box sx={{ position: "absolute", inset: 0, backgroundImage: `url(${mainEntry?.cover_image})`, backgroundSize: 'cover', backgroundPosition: 'center', transition: "transform 0.4s", ".MuiPaper-root:hover &": { transform: "scale(1.05)" } }} />
+                          <Box sx={{ position: "absolute", inset: 0, background: 'linear-gradient(to top, rgba(0,0,0,0.85) 0%, transparent 40%)', display: 'flex', alignItems: 'flex-end', p: 1 }}>
+                            <Typography variant="caption" sx={{ color: '#fff', fontWeight: 700, bgcolor: 'rgba(0,0,0,0.6)', px: 0.75, py: 0.25, borderRadius: 1, backdropFilter: 'blur(4px)', display: "inline-block", fontSize: "0.65rem" }}>
+                              {mainEntry?.status === 'CURRENT' && mainEntry.episodes_watched ? `Ep ${mainEntry.episodes_watched}` : `${mainEntry.episodes_watched || 0}/${mainEntry.episodes_total || '?'} Eps`}
                             </Typography>
                           </Box>
                         </Box>
-                        <Box sx={{ p: 2.5 }}>
-                          <Typography variant="body1" sx={{ fontWeight: 800, fontFamily: 'var(--font-epilogue)', display: '-webkit-box', WebkitLineClamp: 1, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                        <Box sx={{ p: 1.5, display: "flex", flexDirection: "column", flex: 1, justifyContent: "space-between" }}>
+                          <Typography variant="body2" sx={{ fontWeight: 800, fontFamily: 'var(--font-epilogue)', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', lineHeight: 1.2, mb: 1 }}>
                             {group.canonical_title}
                           </Typography>
-                          <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mt: 1.5 }}>
-                            <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>
-                              {group.progress.percentage}% Complete
-                            </Typography>
-                            <PlayCircleFilledRoundedIcon color="primary" sx={{ opacity: 0.8 }} />
-                          </Stack>
-                          <LinearProgress 
-                            variant="determinate" 
-                            value={group.progress.percentage || 0} 
-                            sx={{ mt: 1, height: 6, borderRadius: 3, '& .MuiLinearProgress-bar': { borderRadius: 3, background: (t) => `linear-gradient(90deg, ${t.palette.primary.main}, ${t.palette.secondary.main})` } }} 
-                          />
+                          <Box>
+                            <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 0.5 }}>
+                              <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700, fontSize: "0.65rem" }}>
+                                {group.progress.percentage}%
+                              </Typography>
+                              <PlayCircleFilledRoundedIcon color="primary" sx={{ fontSize: 16, opacity: 0.9 }} />
+                            </Stack>
+                            <LinearProgress 
+                              variant="determinate" 
+                              value={group.progress.percentage || 0} 
+                              sx={{ height: 4, borderRadius: 2, '& .MuiLinearProgress-bar': { borderRadius: 2, background: (t) => `linear-gradient(90deg, ${t.palette.primary.main}, ${t.palette.secondary.main})` } }} 
+                            />
+                          </Box>
                         </Box>
                       </Paper>
                     )
@@ -1121,70 +1127,7 @@ function DashboardContent() {
               </Paper>
             )}
 
-            {/* ── Sequel Alerts ── */}
-            {!isScanning && sequelAlerts.length > 0 && (
-              <Card
-                sx={(theme) => ({
-                  p: { xs: 2.5, md: 3 },
-                  borderRadius: 3,
-                  border: `1px solid ${alpha(theme.palette.divider, 0.4)}`,
-                  background:
-                    theme.palette.mode === "dark"
-                      ? `linear-gradient(135deg, ${alpha(theme.palette.background.paper, 0.95)}, ${alpha(
-                        theme.palette.primary.main,
-                        0.05
-                      )})`
-                      : undefined,
-                })}
-              >
-                <Stack spacing={2}>
-                  <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} justifyContent="space-between" alignItems={{ sm: "center" }}>
-                    <Box>
-                      <Typography variant="h6" sx={{ fontWeight: 800 }}>
-                        What to Watch Next
-                      </Typography>
-                      <Typography variant="body2" color="text.secondary">
-                        {sequelAlerts.filter((a) => a.alert_status === "available").length} available now
-                      </Typography>
-                    </Box>
-                    <Box sx={{ overflowX: "auto", pb: 0.5 }}>
-                      <ToggleButtonGroup
-                        exclusive
-                        size="small"
-                        value={sequelFilter}
-                        onChange={(_, v: string | null) => { if (v) setSequelFilter(v); }}
-                        sx={{ flexWrap: "nowrap", whiteSpace: "nowrap" }}
-                      >
-                        <ToggleButton value="all" sx={{ px: { xs: 1.5, sm: 2 }, fontSize: "0.75rem" }}>All</ToggleButton>
-                        <ToggleButton value="available" sx={{ px: { xs: 1.5, sm: 2 }, fontSize: "0.75rem" }}>Available</ToggleButton>
-                        <ToggleButton value="upcoming" sx={{ px: { xs: 1.5, sm: 2 }, fontSize: "0.75rem" }}>Upcoming</ToggleButton>
-                        <ToggleButton value="planned" sx={{ px: { xs: 1.5, sm: 2 }, fontSize: "0.75rem" }}>Planned</ToggleButton>
-                      </ToggleButtonGroup>
-                    </Box>
-                  </Stack>
-
-                  <Stack spacing={1.5}>
-                    {sequelAlerts
-                      .filter((alert) => {
-                        if (sequelFilter === "available") return alert.alert_status === "available";
-                        if (sequelFilter === "upcoming") return alert.alert_status === "upcoming";
-                        if (sequelFilter === "planned") return alert.alert_status === "planned";
-                        return true;
-                      })
-                      .slice(0, showAllSequels ? undefined : 5)
-                      .map((alert, index) => (
-                        <SequelAlertCard key={`${alert.franchise_id}-${index}`} alert={alert} />
-                      ))}
-                  </Stack>
-
-                  {sequelAlerts.length > 5 && (
-                    <Button variant="text" onClick={() => setShowAllSequels((value) => !value)} sx={{ textTransform: "none" }}>
-                      {showAllSequels ? "Show less" : `Show ${sequelAlerts.length - 5} more`}
-                    </Button>
-                  )}
-                </Stack>
-              </Card>
-            )}
+            {/* ── Sequel Alerts Removed to Dedicated Route ── */}
 
             {/* ── Franchise Library ── */}
             <Stack spacing={2}>

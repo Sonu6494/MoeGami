@@ -32,6 +32,7 @@ export default function Navbar() {
     setSequelAlerts,
   } = useAnimeStore();
   const setPlatform = useAnimeStore((s) => s.setPlatform);
+  const malAvatarUrl = useAnimeStore((s) => s.malAvatarUrl);
   const router = useRouter();
   const queryClient = useQueryClient();
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
@@ -59,10 +60,39 @@ export default function Navbar() {
   return (
     <NavbarShell>
       <Stack direction="row" spacing={1.5} alignItems="center">
-        <NavBrandLink />
+        <NavBrandLink logoOnly={true} />
       </Stack>
 
-      <Stack direction="row" spacing={1.25} alignItems="center">
+      <Stack direction="row" spacing={2} alignItems="center">
+        {(username || malUsername) && (
+          <Stack direction="row" spacing={1.5} alignItems="center" sx={{ display: { xs: "none", md: "flex" } }}>
+            <Button
+              onClick={() => router.push("/sequels")}
+              sx={{
+                textTransform: "none",
+                fontWeight: 700,
+                fontSize: "0.85rem",
+                color: "text.secondary",
+                "&:hover": { color: "text.primary" }
+              }}
+            >
+              Sequels
+            </Button>
+            <Button
+              onClick={() => router.push("/dashboard")}
+              sx={{
+                textTransform: "none",
+                fontWeight: 700,
+                fontSize: "0.85rem",
+                color: "text.secondary",
+                "&:hover": { color: "text.primary" }
+              }}
+            >
+              Your Library
+            </Button>
+          </Stack>
+        )}
+        
         <ThemeToggle />
 
         <Button
@@ -96,6 +126,7 @@ export default function Navbar() {
         >
           <Stack direction="row" spacing={1} alignItems="center">
             <Avatar
+              src={(platform === "MAL" && malAvatarUrl) ? malAvatarUrl : undefined}
               sx={{
                 width: 28,
                 height: 28,
@@ -104,7 +135,7 @@ export default function Navbar() {
                 fontWeight: 700,
               }}
             >
-              {displayName.charAt(0).toUpperCase()}
+              {!(platform === "MAL" && malAvatarUrl) && displayName.charAt(0).toUpperCase()}
             </Avatar>
             <Box
               sx={{
@@ -114,17 +145,23 @@ export default function Navbar() {
             >
               <Typography
                 variant="body2"
-                sx={{ fontWeight: 700, lineHeight: 1.2, fontSize: "0.8rem" }}
+                sx={{ 
+                  fontWeight: 700, 
+                  lineHeight: platform === "MAL" ? 1.5 : 1.2, 
+                  fontSize: "0.8rem" 
+                }}
               >
                 {displayName}
               </Typography>
-              <Typography
-                variant="caption"
-                color="text.secondary"
-                sx={{ lineHeight: 1, fontSize: "0.68rem" }}
-              >
-                {platform === "MAL" ? "Linked MAL profile" : "AniList username"}
-              </Typography>
+              {platform !== "MAL" && (
+                <Typography
+                  variant="caption"
+                  color="text.secondary"
+                  sx={{ lineHeight: 1, fontSize: "0.68rem" }}
+                >
+                  AniList username
+                </Typography>
+              )}
             </Box>
           </Stack>
         </Button>

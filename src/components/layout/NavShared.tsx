@@ -12,7 +12,7 @@ import {
   alpha,
 } from "@mui/material";
 
-export function BrandLockup({ compact = false }: { compact?: boolean }) {
+export function BrandLockup({ compact = false, logoOnly = false }: { compact?: boolean; logoOnly?: boolean }) {
   return (
     <Stack direction="row" spacing={1.5} alignItems="center">
       <Box
@@ -34,8 +34,8 @@ export function BrandLockup({ compact = false }: { compact?: boolean }) {
         MG
       </Box>
 
-      {/* FIX: compact hides the entire text block, not just the subtitle */}
-      {!compact && (
+      {/* Show full wordmark if not compact and not logoOnly */}
+      {!compact && !logoOnly && (
         <Box>
           <Typography
             sx={{
@@ -53,8 +53,8 @@ export function BrandLockup({ compact = false }: { compact?: boolean }) {
         </Box>
       )}
 
-      {/* When compact, show just the wordmark without subtitle */}
-      {compact && (
+      {/* When compact but not logoOnly, show just the wordmark without subtitle */}
+      {compact && !logoOnly && (
         <Typography
           sx={{
             fontFamily: "var(--font-bebas-neue), sans-serif",
@@ -112,10 +112,10 @@ export function NavbarShell({ children }: { children: React.ReactNode }) {
   );
 }
 
-export function NavBrandLink({ compact = false }: { compact?: boolean }) {
+export function NavBrandLink({ compact = false, logoOnly = false }: { compact?: boolean; logoOnly?: boolean }) {
   return (
     <Link href="/" style={{ textDecoration: "none", color: "inherit" }}>
-      <BrandLockup compact={compact} />
+      <BrandLockup compact={compact} logoOnly={logoOnly} />
     </Link>
   );
 }

@@ -3,6 +3,13 @@ import { generateCodeVerifier, getMALAuthUrl } from '@/lib/mal'
 import { cookies } from 'next/headers'
 
 export async function GET() {
+  if (!process.env.MAL_CLIENT_ID || !process.env.MAL_REDIRECT_URI) {
+    return NextResponse.json(
+      { error: 'MAL Authentication is not configured. Missing environment variables.' },
+      { status: 500 }
+    )
+  }
+
   const codeVerifier = generateCodeVerifier()
 
   // Store verifier in httpOnly cookie for callback
@@ -15,9 +22,9 @@ export async function GET() {
   })
 
   const authUrl = getMALAuthUrl(
-    process.env.MAL_CLIENT_ID!,
+    process.env.MAL_CLIENT_ID,
     codeVerifier,
-    process.env.MAL_REDIRECT_URI!
+    process.env.MAL_REDIRECT_URI
   )
 
   return NextResponse.redirect(authUrl)
