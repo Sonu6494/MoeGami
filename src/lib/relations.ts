@@ -24,12 +24,9 @@ export const RELATION_PRIORITY: UnifiedRelationType[] = [
   "spin_off",
   "alternative_version",
   "alternative_setting",
-  "source",
   "compilation",
-  "contains",
-  "other",
-  // "character" intentionally excluded from priority list — filtered out
-  // in groupRelatedAnime and never surfaced in the UI
+  // "contains", "source", "other" and "character" are excluded from priority list
+  // — filtered out in groupRelatedAnime and never surfaced in the UI as groups
 ]
 
 export const RELATION_DISPLAY_LABELS: Record<UnifiedRelationType, string> = {
@@ -111,7 +108,12 @@ export function groupRelatedAnime<T>(
 
   for (const item of related) {
     const unified = normalizer(item.relation_type)
-    if (unified === "character") continue
+    if (
+      unified === "character" ||
+      unified === "other" ||
+      unified === "source" ||
+      unified === "contains"
+    ) continue
     if (!groups.has(unified)) groups.set(unified, [])
     groups.get(unified)!.push(item)
   }
