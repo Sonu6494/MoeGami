@@ -38,6 +38,7 @@ export function readDashboardSnapshot(
   platform: Platform,
   accountKey: string
 ): DashboardSnapshot | null {
+  return null; // Temporarily disabled browser local storage caching to debug the update issue
   if (typeof window === "undefined") return null
   if (!accountKey.trim()) return null
 
@@ -45,14 +46,14 @@ export function readDashboardSnapshot(
     const raw = window.localStorage.getItem(getStorageKey(platform, accountKey))
     if (!raw) return null
 
-    const parsed = JSON.parse(raw) as {
+    const parsed = JSON.parse(raw!) as {
       version?: number
       snapshot?: DashboardSnapshot
     }
 
     if (parsed.version !== CACHE_VERSION || !parsed.snapshot) return null
 
-    return parsed.snapshot
+    return parsed.snapshot || null
   } catch {
     return null
   }

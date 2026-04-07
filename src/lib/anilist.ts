@@ -84,10 +84,12 @@ function normalise(
     cover_image: media.coverImage?.large ?? "",
     start_year: media.startDate?.year ?? null,
     country_of_origin: media.countryOfOrigin ?? "",
-    relations: media.relations.edges.map((edge) => ({
+    relations: media.relations.edges
+      .filter((edge) => edge.node.type === "ANIME")
+      .map((edge) => ({
       id: edge.node.id,
       title: edge.node.title.romaji,
-      type: (edge.node.format ?? edge.node.type) as NormalisedEntry["type"],
+      type: (edge.node.format ?? "UNKNOWN") as NormalisedEntry["type"],
       relationType: fromAniList(edge.relationType),
     })),
     platform: "ANILIST",

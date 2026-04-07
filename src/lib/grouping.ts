@@ -53,7 +53,8 @@ function classifyEntry(
     relationToGroup.relationType === "alternative_setting"
   ) return "main"
 
-  if (["MOVIE", "OVA", "ONA", "SPECIAL", "MUSIC", "UNKNOWN"].includes(entry.type)) {
+  // Only allow Movies, OVAs, ONAs, and Unknowns (un-aired) to become main timeline entries
+  if (["MOVIE", "OVA", "ONA", "UNKNOWN"].includes(entry.type)) {
     const isSequelOrPrequel = entry.relations.some((r) =>
       (r.relationType === "sequel" || r.relationType === "prequel") &&
       groupEntries.some((ge) => ge.platform_id === r.id)
@@ -61,6 +62,11 @@ function classifyEntry(
 
     if (isSequelOrPrequel) return "main"
 
+    return "supplementary"
+  }
+
+  // Force SPECIAL (Recaps) and MUSIC into Side Stories
+  if (["SPECIAL", "MUSIC"].includes(entry.type)) {
     return "supplementary"
   }
 

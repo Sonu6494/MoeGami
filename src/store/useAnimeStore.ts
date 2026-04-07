@@ -24,6 +24,7 @@ interface AnimeStore extends PersistedAnimeStore {
   isScanning: boolean
   malAuthenticated: boolean
   error: string | null
+  globalSearchTerm: string
 
   setUsername: (username: string) => void
   setMalUsername: (malUsername: string, avatarUrl?: string | null) => void
@@ -36,6 +37,7 @@ interface AnimeStore extends PersistedAnimeStore {
   setMALAuthenticated: (authenticated: boolean) => void
   setError: (error: string | null) => void
   setTheme: (theme: "dark" | "light") => void
+  setGlobalSearchTerm: (term: string) => void
 }
 
 export const useAnimeStore = create<AnimeStore>()(
@@ -51,6 +53,7 @@ export const useAnimeStore = create<AnimeStore>()(
       sequelAlerts: [],
       isLoading: false,
       isScanning: false,
+      globalSearchTerm: "",
       // FIX: removed malAccessToken — lives in httpOnly cookie, not client state
       malAuthenticated: false,
       error: null,
@@ -66,6 +69,7 @@ export const useAnimeStore = create<AnimeStore>()(
       setMALAuthenticated: (malAuthenticated) => set({ malAuthenticated }),
       setError: (error) => set({ error }),
       setTheme: (theme) => set({ theme }),
+      setGlobalSearchTerm: (globalSearchTerm) => set({ globalSearchTerm }),
     }),
     {
       name: "moegami-store",

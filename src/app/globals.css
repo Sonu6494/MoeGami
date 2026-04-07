@@ -27,31 +27,38 @@
 }
 
 .dark {
-  --bg-base: #0a0510;
-  --bg-surface: #120c18;
-  --bg-elevated: #1e1626;
-  --bg-nav: rgba(18, 12, 24, 0.85);
-  --accent: #bd9dff;
-  --accent-hover: #b28cff;
-  --accent-warm: #8a4cfc;
-  --accent-light: rgba(189, 157, 255, 0.15);
-  --text-primary: #f4e7f9;
-  --text-secondary: #b2a7b9;
-  --text-muted: #7c7282;
+  /* Elevation layers — each step is ~10% lighter than the previous */
+  --bg-base:     #09050f;  /* Level 0 — page canvas       */
+  --bg-surface:  #130d1b;  /* Level 1 — cards, panels      */
+  --bg-elevated: #1d1528;  /* Level 2 — nav, stat bars     */
+  --bg-overlay:  #261d33;  /* Level 3 — dropdowns, menus   */
+  --bg-nav: rgba(19, 13, 27, 0.82);
+  --accent: #b0a4ec;          /* was #bd9dff (100% sat) → hsl(258,70%,80%) */
+  --accent-hover: #a89dec;    /* was #b28cff */
+  --accent-warm: #7f62d8;     /* was #8a4cfc (97% sat) → hsl(258,65%,62%) */
+  --accent-light: rgba(176, 164, 236, 0.15);  /* was rgba(189,157,255,0.15) */
+  /* 3-tier text hierarchy — reserves pure white for emphasis only */
+  --text-primary:   #EDE8F5;  /* T1 ~93% — headings, stats          */
+  --text-secondary: #A29AB8;  /* T2 ~70% — labels, captions         */
+  --text-muted:     #6E6678;  /* T3 ~50% — tertiary, hint, counts   */
   --success: #10b981;
   --warning: #f59e0b;
-  --border: rgba(255, 255, 255, 0.05);
-  --shadow-sm: 0 4px 20px rgba(0, 0, 0, 0.4);
-  --shadow-md: 0 10px 30px rgba(0, 0, 0, 0.5);
-  --shadow-lg: 0 20px 40px rgba(0, 0, 0, 0.6);
-  --skeleton-highlight: rgba(255, 255, 255, 0.05);
+  --border: rgba(255, 255, 255, 0.07);
+  /* Elevation borders replace shadows in dark theme */
+  --elevation-border: rgba(255, 255, 255, 0.09);
+  --shadow-sm: 0 1px 0 rgba(255, 255, 255, 0.06) inset;  /* top-edge highlight */
+  --shadow-md: 0 1px 0 rgba(255, 255, 255, 0.08) inset;
+  --shadow-lg: 0 1px 0 rgba(255, 255, 255, 0.10) inset;
+  --skeleton-highlight: rgba(255, 255, 255, 0.06);
 }
 
 .warm {
-  --bg-base: #13100e;
-  --bg-surface: #1e1812;
-  --bg-elevated: #2a2018;
-  --bg-nav: rgba(19, 16, 14, 0.85);
+  /* Elevation layers — warm amber-brown progression */
+  --bg-base:     #120f0c;  /* Level 0 */
+  --bg-surface:  #1d1712;  /* Level 1 */
+  --bg-elevated: #27201a;  /* Level 2 */
+  --bg-overlay:  #342a22;  /* Level 3 */
+  --bg-nav: rgba(29, 23, 18, 0.82);
   --accent: #7c3aed;
   --accent-hover: #8b5cf6;
   --accent-warm: #c084fc;
@@ -62,9 +69,10 @@
   --success: #10b981;
   --warning: #f59e0b;
   --border: rgba(245, 236, 215, 0.07);
-  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4);
-  --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.4);
-  --shadow-lg: 0 10px 25px rgba(0, 0, 0, 0.5);
+  --elevation-border: rgba(255, 230, 180, 0.09);
+  --shadow-sm: 0 1px 0 rgba(255, 220, 150, 0.06) inset;
+  --shadow-md: 0 1px 0 rgba(255, 220, 150, 0.08) inset;
+  --shadow-lg: 0 1px 0 rgba(255, 220, 150, 0.10) inset;
   --skeleton-highlight: rgba(255, 255, 255, 0.06);
 }
 

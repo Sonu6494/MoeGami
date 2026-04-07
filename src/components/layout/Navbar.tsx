@@ -6,6 +6,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import ArrowBackRoundedIcon from "@mui/icons-material/ArrowBackRounded";
 import LogoutRoundedIcon from "@mui/icons-material/LogoutRounded";
 import ExpandMoreRoundedIcon from "@mui/icons-material/ExpandMoreRounded";
+import SearchRoundedIcon from "@mui/icons-material/SearchRounded";
 import {
   Avatar,
   Box,
@@ -16,6 +17,8 @@ import {
   MenuItem,
   Stack,
   Typography,
+  InputAdornment,
+  TextField,
 } from "@mui/material";
 import useAnimeStore from "@/store/useAnimeStore";
 import ThemeToggle from "@/components/ui/ThemeToggle";
@@ -42,6 +45,22 @@ export default function Navbar() {
 
   // FIX: abbreviated platform label — "MyAnimeList" was too wide
   const platformLabel = platform === "MAL" ? "MAL" : "AniList";
+
+  const globalSearchTerm = useAnimeStore((s) => s.globalSearchTerm);
+  const setGlobalSearchTerm = useAnimeStore((s) => s.setGlobalSearchTerm);
+
+  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setGlobalSearchTerm(e.target.value);
+    if (window.location.pathname !== "/dashboard") {
+      router.push("/dashboard#library-section");
+    } else {
+      const el = document.getElementById("library-section");
+      // Only scroll if we are not reasonably close to the library section to prevent annoying jumps while typing
+      if (el && window.scrollY < el.offsetTop - 200) {
+        el.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    }
+  };
 
   async function handleDisconnect() {
     if (platform === "MAL") {
@@ -92,7 +111,50 @@ export default function Navbar() {
             </Button>
           </Stack>
         )}
-        
+
+        {(username || malUsername) && (
+          <TextField
+            value={globalSearchTerm}
+            onChange={handleSearchChange}
+            placeholder="Search franchises..."
+            size="small"
+            sx={{
+              display: { xs: "none", sm: "block" },
+              width: 220,
+              "& .MuiOutlinedInput-root": {
+                borderRadius: 4,
+                height: 36,
+                pr: 1,
+                // Level 1 surface — slightly lighter than the nav background
+                bgcolor: (t) => t.palette.mode === "dark"
+                  ? "rgba(19, 13, 27, 0.9)"   /* --bg-surface */
+                  : "rgba(255,255,255,0.9)",
+                "& fieldset": {
+                  borderColor: (t) => t.palette.mode === "dark"
+                    ? "rgba(255,255,255,0.09)"
+                    : "rgba(0,0,0,0.1)",
+                },
+                "&:hover fieldset": {
+                  borderColor: (t) => t.palette.mode === "dark"
+                    ? "rgba(255,255,255,0.15)"
+                    : "rgba(0,0,0,0.2)",
+                },
+                "&.Mui-focused fieldset": {
+                  borderColor: "primary.main",
+                  borderWidth: "1px",
+                },
+              },
+            }}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchRoundedIcon color="action" sx={{ fontSize: 18 }} />
+                </InputAdornment>
+              ),
+            }}
+          />
+        )}
+
         <ThemeToggle />
 
         <Button
@@ -145,10 +207,10 @@ export default function Navbar() {
             >
               <Typography
                 variant="body2"
-                sx={{ 
-                  fontWeight: 700, 
-                  lineHeight: platform === "MAL" ? 1.5 : 1.2, 
-                  fontSize: "0.8rem" 
+                sx={{
+                  fontWeight: 700,
+                  lineHeight: platform === "MAL" ? 1.5 : 1.2,
+                  fontSize: "0.8rem"
                 }}
               >
                 {displayName}
@@ -182,11 +244,17 @@ export default function Navbar() {
             border: `1px solid`,
             borderColor:
               theme.palette.mode === "dark"
-                ? "rgba(255,255,255,0.1)"
+                ? "rgba(255,255,255,0.12)"
                 : "rgba(0,0,0,0.08)",
+            // Level 3 — dropdown floats above everything
+            bgcolor:
+              theme.palette.mode === "dark"
+                ? "#261d33"  /* --bg-overlay */
+                : "#ffffff",
+            // Top edge highlight for dark elevation
             boxShadow:
               theme.palette.mode === "dark"
-                ? "0 8px 24px rgba(0,0,0,0.4)"
+                ? "0 1px 0 rgba(255,255,255,0.10) inset"
                 : "0 8px 24px rgba(0,0,0,0.08)",
           }),
         }}
@@ -198,6 +266,6 @@ export default function Navbar() {
           <LogoutRoundedIcon />
         </MenuItem>
       </Menu>
-    </NavbarShell>
+    </NavbarShell >
   );
 }

@@ -7,6 +7,7 @@ const BATCH_SEQUEL_QUERY = `
     Page(perPage: 50) {
       media(id_in: $ids, type: ANIME) {
         id
+        idMal
         title { romaji english }
         format
         status
@@ -19,6 +20,7 @@ const BATCH_SEQUEL_QUERY = `
             relationType
             node {
               id
+              idMal
               title { romaji english }
               format
               type
@@ -35,13 +37,48 @@ const BATCH_SEQUEL_QUERY = `
   }
 `
 
-async function batchFetchSequelInfo(ids: number[]): Promise<any[]> {
+const BATCH_SEQUEL_MAL_QUERY = `
+  query BatchSequelCheckMAL($ids: [Int]) {
+    Page(perPage: 50) {
+      media(idMal_in: $ids, type: ANIME) {
+        id
+        idMal
+        title { romaji english }
+        format
+        status
+        startDate { year month }
+        season
+        seasonYear
+        coverImage { large }
+        relations {
+          edges {
+            relationType
+            node {
+              id
+              idMal
+              title { romaji english }
+              format
+              type
+              status
+              startDate { year month }
+              season
+              seasonYear
+              coverImage { large }
+            }
+          }
+        }
+      }
+    }
+  }
+`
+
+async function batchFetchSequelInfo(ids: number[], useMalIds = false): Promise<Record<string, unknown>[]> {
   try {
     const response = await fetch(ANILIST_API, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        query: BATCH_SEQUEL_QUERY,
+        query: useMalIds ? BATCH_SEQUEL_MAL_QUERY : BATCH_SEQUEL_QUERY,
         variables: { ids },
       }),
     })
@@ -84,14 +121,15 @@ function isAlreadyWatched(
 // FIX: typed sequel as `any` — was `Record<string, unknown>` which blocked
 // property access on sequel.id, sequel.title.english, sequel.status etc.
 function getAlertStatus(
-  sequel: any,
+  sequel: Record<string, unknown>,
   allUserEntryIds: Set<number>,
-  allUserEntries: Map<number, NormalisedEntry>
+  allUserEntries: Map<number, NormalisedEntry>,
+  platform: "ANILIST" | "MAL"
 ): SequelAlert["alert_status"] | null {
-  const sequelId = sequel.id as number
-  const sequelTitle: string = sequel.title?.english ?? sequel.title?.romaji ?? ""
+  const sequelId = (platform === "MAL" ? (sequel.idMal ?? sequel.id) : sequel.id) as number
+  const sequelTitle: string = (sequel.title as any)?.english ?? (sequel.title as any)?.romaji ?? ""
 
-  // Check by ID (AniList users)
+  // Check by exact platform ID
   if (allUserEntryIds.has(sequelId)) {
     const userEntry = allUserEntries.get(sequelId)
     if (!userEntry) return null
@@ -101,7 +139,7 @@ function getAlertStatus(
     return "in_progress"
   }
 
-  // Check by title (MAL users — IDs won't match AniList IDs)
+  // Check by title (fallback for cross-platform differences)
   const titleMatch = isAlreadyWatched(sequelTitle, allUserEntries)
   if (titleMatch) {
     if (titleMatch.user_completed) return null
@@ -122,8 +160,8 @@ function getAlertStatus(
 // FIX: removed `r.status` — EntryRelation has no status field, default to "FINISHED"
 function buildMALMediaMap(
   entriesToCheck: Array<{ entryId: number; franchise: FranchiseGroup; entry: NormalisedEntry }>
-): Map<number, any> {
-  const mediaMap = new Map<number, any>()
+): Map<number, Record<string, unknown>> {
+  const mediaMap = new Map<number, Record<string, unknown>>()
 
   entriesToCheck.forEach(({ entry }) => {
     mediaMap.set(entry.platform_id, {
@@ -176,7 +214,10 @@ export async function scanForSequels(
     if (blacklistedFranchiseIds.has(franchise.franchise_id)) return
 
     franchise.main_timeline.forEach((entry) => {
-      if (entry.user_completed) {
+      // Allow scanning completed, watching, and planned entries to find future sequels
+      // Even if user hasn't watched Season 2 yet, if it's on their planned list, we should
+      // scan it so we can discover Season 3 and adjust the total franchise scale.
+      if (entry.user_completed || entry.status === "CURRENT" || entry.status === "PLANNING") {
         entriesToCheck.push({ entryId: entry.platform_id, franchise, entry })
       }
     })
@@ -187,114 +228,99 @@ export async function scanForSequels(
 
   const alertedSequelIds = new Set<number>()
 
-  if (platform === "MAL") {
-    // ── MAL path ─────────────────────────────────────────────────────────────
-    // Relations are already embedded in NormalisedEntry — no API calls needed.
-    const mediaMap = buildMALMediaMap(entriesToCheck)
+  const BATCH_SIZE = 50
+  const DELAY_MS = 800
 
-    const entriesWithRelations = [...mediaMap.values()].filter(
-      (m) => m.relations.edges.length > 0
-    ).length
-    const totalEdges = [...mediaMap.values()].reduce(
-      (sum, m) => sum + m.relations.edges.length,
-      0
-    )
-    console.log(
-      `MAL sequel scanner: ${mediaMap.size} entries checked, ${entriesWithRelations} have relations, ${totalEdges} total edges`
-    )
+  let currentIdsToFetch = entriesToCheck.map((b) => b.entryId)
+  let isFirstBatch = true
 
-    // FIX: was two nested sequelEdges.forEach loops — collapsed to one
-    entriesToCheck.forEach(({ entryId, franchise, entry }, i) => {
-      const media = mediaMap.get(entryId)
-      if (!media) return
+  const contextMap = new Map<number, any>()
 
-      const sequelEdges = media.relations.edges.filter(
-        (edge: any) => edge.relationType === "SEQUEL"
-      )
-
-      sequelEdges.forEach((edge: any) => {
-        const sequel = edge.node
-
-        if (
-          !["TV", "TV_SHORT", "MOVIE", "OVA", "ONA", "SPECIAL", "UNKNOWN"].includes(
-            sequel.format
-          )
-        ) {
-          return
-        }
-
-        if (alertedSequelIds.has(sequel.id) || blacklistedEntryIds.has(sequel.id)) return
-
-        const status = getAlertStatus(sequel, allUserEntryIds, allUserEntries)
-        if (!status) return
-
-        alertedSequelIds.add(sequel.id)
-
-        alerts.push({
-          franchise_title: franchise.canonical_title,
-          franchise_cover: franchise.cover_image,
-          franchise_id: franchise.franchise_id,
-          last_watched: {
-            id: entry.platform_id,
-            title: entry.title,
-            type: entry.type,
-          },
-          next_entry: {
-            id: sequel.id,
-            title: sequel.title?.english ?? sequel.title?.romaji,
-            type: sequel.format,
-            status: sequel.status,
-            season: undefined,
-            year: undefined,
-            cover_image: sequel.coverImage?.large || undefined,
-          },
-          alert_status: status,
-          platform: "MAL" as const,
-        })
-      })
-
-      onProgress?.(i + 1, entriesToCheck.length)
+  entriesToCheck.forEach((b) => {
+    contextMap.set(b.entryId, {
+      franchise: b.franchise,
+      last_watched: { id: b.entry.platform_id, title: b.entry.title, type: b.entry.type },
     })
-  } else {
-    // ── AniList path ──────────────────────────────────────────────────────────
-    const BATCH_SIZE = 50
-    const DELAY_MS = 800
+  })
 
-    for (let i = 0; i < entriesToCheck.length; i += BATCH_SIZE) {
-      const batch = entriesToCheck.slice(i, i + BATCH_SIZE)
-      const batchIds = batch.map((b) => b.entryId)
+  // Keep a map so we can look up context by either AniList ID or MAL ID
+  const linkContextToIds = (aniId: number, malId?: number | null, context?: any) => {
+    if (!context) return
+    contextMap.set(aniId, context)
+    if (malId) contextMap.set(malId, context)
+  }
 
-      // FIX: was declared twice on consecutive lines
-      const mediaResults = await batchFetchSequelInfo(batchIds)
+  const processedIds = new Set<number>()
+  let totalProcessed = 0
 
-      const mediaMap = new Map<number, any>()
-      mediaResults.forEach((m: any) => mediaMap.set(m.id, m))
+  while (currentIdsToFetch.length > 0) {
+    const uniqueIds = Array.from(new Set(currentIdsToFetch)).filter((id) => !processedIds.has(id))
+    if (uniqueIds.length === 0) break
 
-      batch.forEach(({ entryId, franchise, entry }) => {
-        const media = mediaMap.get(entryId)
-        if (!media) return
+    const nextBatchToFetch: number[] = []
 
-        const sequelEdges = media.relations.edges.filter(
+    for (let i = 0; i < uniqueIds.length; i += BATCH_SIZE) {
+      if (totalProcessed > 0) await new Promise((r) => setTimeout(r, DELAY_MS))
+
+      const batchIds = uniqueIds.slice(i, i + BATCH_SIZE)
+      batchIds.forEach((id) => processedIds.add(id))
+
+      // Only use idMal_in for the very first batch if the platform is MAL.
+      // Subsequently, we discover AniList nodes and track them by AniList IDs.
+      const useMalIds = platform === "MAL" && isFirstBatch
+      const mediaResults = await batchFetchSequelInfo(batchIds, useMalIds)
+
+      mediaResults.forEach((media: any) => {
+        // Find the context from either MAL ID or AniList ID
+        const context = contextMap.get(media.idMal) || contextMap.get(media.id)
+        if (!context) return
+
+        // Forward the context link so subsequent iterations by AniList ID will find it
+        linkContextToIds(media.id, media.idMal, context)
+
+        const sequelEdges = media.relations?.edges?.filter(
           (edge: any) => edge.relationType === "SEQUEL"
-        )
+        ) || []
 
         sequelEdges.forEach((edge: any) => {
           const sequel = edge.node
+          const format = sequel.format ?? "UNKNOWN"
 
           if (
-            !["TV", "TV_SHORT", "MOVIE", "OVA", "ONA", "SPECIAL"].includes(
-              sequel.format
+            !["TV", "TV_SHORT", "MOVIE", "OVA", "ONA", "SPECIAL", "UNKNOWN"].includes(
+              format
             )
           ) {
             return
           }
 
-          if (alertedSequelIds.has(sequel.id) || blacklistedEntryIds.has(sequel.id)) return
+          // Use the correct ID domain for blacklisting checks.
+          // Fallback to sequel.id (AniList ID) if MAL ID isn't returned by Graphql.
+          const targetId = platform === "MAL" ? (sequel.idMal ?? sequel.id) : sequel.id
 
-          const status = getAlertStatus(sequel, allUserEntryIds, allUserEntries)
+          if (alertedSequelIds.has(targetId) || blacklistedEntryIds.has(targetId)) return
+
+          const status = getAlertStatus(sequel, allUserEntryIds, allUserEntries, platform)
           if (!status) return
 
-          alertedSequelIds.add(sequel.id)
+          alertedSequelIds.add(targetId)
+
+          const newContext = {
+            franchise: context.franchise,
+            last_watched: {
+              id: targetId,
+              title: sequel.title?.english ?? sequel.title?.romaji,
+              type: sequel.format,
+            },
+          }
+
+
+          linkContextToIds(sequel.id, sequel.idMal, newContext)
+
+          // Fetch the next sequel in chain if the current one isn't unreleased
+          if (sequel.status !== "NOT_YET_RELEASED") {
+            nextBatchToFetch.push(sequel.id) // Always use AniList ID for recursive queries
+          }
 
           const seasonLabel =
             sequel.season && sequel.seasonYear
@@ -304,16 +330,12 @@ export async function scanForSequels(
                 : undefined
 
           alerts.push({
-            franchise_title: franchise.canonical_title,
-            franchise_cover: franchise.cover_image,
-            franchise_id: franchise.franchise_id,
-            last_watched: {
-              id: entry.platform_id,
-              title: entry.title,
-              type: entry.type,
-            },
+            franchise_title: context.franchise.canonical_title,
+            franchise_cover: context.franchise.cover_image,
+            franchise_id: context.franchise.franchise_id,
+            last_watched: context.last_watched,
             next_entry: {
-              id: sequel.id,
+              id: targetId,
               title: sequel.title?.english ?? sequel.title?.romaji,
               type: sequel.format,
               status: sequel.status,
@@ -322,20 +344,22 @@ export async function scanForSequels(
               cover_image: sequel.coverImage?.large,
             },
             alert_status: status,
-            platform: "ANILIST" as const,
+            platform,
           })
         })
       })
 
-      const processed = Math.min(i + BATCH_SIZE, entriesToCheck.length)
-      onProgress?.(processed, entriesToCheck.length)
-      console.log(`Sequel scanner: ${processed}/${entriesToCheck.length}`)
-
-      if (i + BATCH_SIZE < entriesToCheck.length) {
-        await new Promise((resolve) => setTimeout(resolve, DELAY_MS))
-      }
+      totalProcessed += batchIds.length
+      onProgress?.(Math.min(totalProcessed, entriesToCheck.length - 1), entriesToCheck.length)
+      console.log(`Sequel scanner chunk: fetched ${batchIds.length} relations`)
     }
+
+    currentIdsToFetch = nextBatchToFetch
+    isFirstBatch = false
   }
+
+  // Complete the progress at the end
+  onProgress?.(entriesToCheck.length, entriesToCheck.length)
 
   const ORDER: Record<string, number> = {
     watching: 0,

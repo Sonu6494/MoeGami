@@ -87,17 +87,23 @@ export function NavbarShell({ children }: { children: React.ReactNode }) {
         width: "calc(100% - 32px)",
         maxWidth: "1200px",
         borderRadius: 2,
-        backdropFilter: "blur(12px)",
-        WebkitBackdropFilter: "blur(12px)",
+        backdropFilter: "blur(16px)",
+        WebkitBackdropFilter: "blur(16px)",
+        // Level 2 — navbar sits above the page canvas
         backgroundColor:
           theme.palette.mode === "dark"
-            ? alpha("#080808", 0.82)
+            ? "rgba(29, 21, 40, 0.88)"  /* --bg-elevated with opacity */
             : alpha("#ffffff", 0.85),
         border: `1px solid ${
           theme.palette.mode === "dark"
-            ? "rgba(255,255,255,0.07)"
+            ? "rgba(255,255,255,0.09)"
             : "rgba(0,0,0,0.08)"
         }`,
+        // Top edge highlight for dark mode elevation
+        boxShadow:
+          theme.palette.mode === "dark"
+            ? "0 1px 0 rgba(255,255,255,0.09) inset"
+            : "none",
       })}
     >
       <Container maxWidth={false}>

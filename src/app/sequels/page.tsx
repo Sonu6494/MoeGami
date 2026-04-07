@@ -80,7 +80,7 @@ function SequelsContent() {
                   fontFamily: "var(--font-epilogue)", 
                   letterSpacing: "-0.03em",
                   background: (t) => t.palette.mode === 'dark' 
-                    ? 'linear-gradient(to right, #ece1f4, #c38bf5)' 
+                    ? 'linear-gradient(to right, #e8e0f4, #b09ad8)'  /* desaturated, was #c38bf5 */ 
                     : 'inherit',
                   WebkitBackgroundClip: (t) => t.palette.mode === 'dark' ? 'text' : 'inherit',
                   WebkitTextFillColor: (t) => t.palette.mode === 'dark' ? 'transparent' : 'inherit',

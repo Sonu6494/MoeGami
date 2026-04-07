@@ -60,7 +60,7 @@ export default function LandingPage() {
         display: "flex",
         flexDirection: "column",
         bgcolor: theme.palette.mode === "dark" ? "#110c18" : "background.default",
-        color: theme.palette.mode === "dark" ? "#ece1f4" : "text.primary",
+        color: theme.palette.mode === "dark" ? theme.palette.text.primary : "text.primary",
       })}
     >
       <HomeNavbar />
@@ -81,14 +81,16 @@ export default function LandingPage() {
             sx={(theme) => ({
               p: { xs: 5, md: 8 },
               borderRadius: "32px",
+              // Level 1 surface in dark mode
               background: theme.palette.mode === "dark" 
-                ? "#16111e" 
+                ? "#130d1b"  /* --bg-surface */
                 : `linear-gradient(135deg, ${alpha("#ffffff", 0.6)}, ${alpha("#ffffff", 0.3)})`,
               backdropFilter: theme.palette.mode === "dark" ? "none" : "blur(12px)",
-              border: theme.palette.mode === "dark" ? "none" : "1px solid",
-              borderColor: theme.palette.mode === "dark" ? "transparent" : "rgba(0,0,0,0.08)",
+              border: "1px solid",
+              borderColor: theme.palette.mode === "dark" ? "rgba(255,255,255,0.09)" : "rgba(0,0,0,0.08)",
+              // Top edge highlight for depth
               boxShadow: theme.palette.mode === "dark" 
-                ? "0 8px 32px rgba(236,225,244,0.02)" 
+                ? "0 1px 0 rgba(255,255,255,0.08) inset" 
                 : "0 24px 48px rgba(0,0,0,0.05)",
               textAlign: "center",
               position: "relative",
@@ -119,7 +121,7 @@ export default function LandingPage() {
                     fontWeight: 800, 
                     mb: 1.5,
                     letterSpacing: "-0.03em",
-                    color: theme.palette.mode === "dark" ? "#ece1f4" : "text.primary"
+                    color: theme.palette.mode === "dark" ? theme.palette.text.primary : "text.primary"
                   })}
                 >
                   Moe
@@ -133,7 +135,8 @@ export default function LandingPage() {
                     maxWidth: 480, 
                     mx: "auto", 
                     lineHeight: 1.6,
-                    color: theme.palette.mode === "dark" ? "#b1a8b9" : "text.secondary",
+                    // T2 secondary — tagline text
+                    color: theme.palette.mode === "dark" ? theme.palette.text.secondary : "text.secondary",
                     fontFamily: "var(--font-manrope)"
                   })}
                 >
@@ -168,7 +171,7 @@ export default function LandingPage() {
                   sx={{ 
                     px: 4, 
                     py: 1.5,
-                    "&.Mui-selected": { bgcolor: alpha("#bd9dff", 0.15) }
+                    "&.Mui-selected": { bgcolor: alpha("#b0a4ec", 0.15) }
                   }}
                 >
                   <svg fill="#02A9FF" role="img" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" width="24" height="24">
@@ -181,7 +184,7 @@ export default function LandingPage() {
                   sx={{ 
                     px: 4, 
                     py: 1.5,
-                    "&.Mui-selected": { bgcolor: alpha("#bd9dff", 0.15) }
+                    "&.Mui-selected": { bgcolor: alpha("#b0a4ec", 0.15) }
                   }}
                 >
                   <svg fill="#2E51A2" role="img" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" width="24" height="24">
@@ -207,18 +210,19 @@ export default function LandingPage() {
                     fullWidth
                     sx={(theme) => ({
                       "& .MuiOutlinedInput-root": {
-                        bgcolor: theme.palette.mode === "dark" ? "#231d2d" : alpha("#FFFFFF", 0.8),
-                        borderRadius: 999, // round-full pill
-                        color: theme.palette.mode === "dark" ? "#ece1f4" : "text.primary",
+                        // Level 2 — input appears elevated inside the card
+                        bgcolor: theme.palette.mode === "dark" ? "#1d1528" : alpha("#FFFFFF", 0.8),
+                        borderRadius: 999,
+                        color: theme.palette.mode === "dark" ? theme.palette.text.primary : "text.primary",
                         "& fieldset": {
-                          borderColor: theme.palette.mode === "dark" ? "transparent" : alpha("#000", 0.1),
+                          borderColor: theme.palette.mode === "dark" ? "rgba(255,255,255,0.1)" : alpha("#000", 0.1),
                           transition: "border-color 0.2s",
                         },
                         "&:hover fieldset": {
-                          borderColor: theme.palette.mode === "dark" ? alpha("#4c4554", 0.15) : alpha("#000", 0.2),
+                          borderColor: theme.palette.mode === "dark" ? "rgba(255,255,255,0.18)" : alpha("#000", 0.2),
                         },
                         "&.Mui-focused fieldset": {
-                          borderColor: theme.palette.mode === "dark" ? alpha("#4c4554", 0.3) : "primary.main", // ghost border outline_variant
+                          borderColor: theme.palette.mode === "dark" ? alpha("#b0a4ec", 0.5) : "primary.main",
                           borderWidth: "1px",
                         },
                       },
@@ -239,21 +243,21 @@ export default function LandingPage() {
                       px: 4,
                       borderRadius: 999,
                       background: theme.palette.mode === "dark" 
-                        ? "linear-gradient(135deg, #8a4cfc 0%, #bd9dff 100%)"
+                        ? "linear-gradient(135deg, #7f62d8 0%, #b0a4ec 100%)"
                         : "linear-gradient(135deg, #6F4BFF 0%, #8E73FF 100%)",
-                      color: theme.palette.mode === "dark" ? "#3c0089" : "#ffffff",
+                      color: theme.palette.mode === "dark" ? "#1e0a48" : "#ffffff",
                       fontWeight: 700,
                       fontFamily: "var(--font-manrope)",
                       textTransform: "none",
                       boxShadow: theme.palette.mode === "dark" 
-                        ? "0 8px 32px rgba(189,157,255,0.24)"
+                        ? "0 8px 32px rgba(176, 164, 236, 0.22)"
                         : "0 8px 24px rgba(111,75,255,0.25)",
                       "&:hover": {
                         background: theme.palette.mode === "dark"
-                          ? "linear-gradient(135deg, #7c3aed 0%, #a67aff 100%)"
+                          ? "linear-gradient(135deg, #6e52c4 0%, #a89dec 100%)"
                           : "linear-gradient(135deg, #5635E8 0%, #7d60ff 100%)",
                         boxShadow: theme.palette.mode === "dark"
-                          ? "0 12px 40px rgba(189,157,255,0.32)"
+                          ? "0 12px 40px rgba(176, 164, 236, 0.30)"
                           : "0 12px 32px rgba(111,75,255,0.3)",
                       }
                     })}
@@ -271,7 +275,7 @@ export default function LandingPage() {
                       maxWidth: 440,
                       bgcolor: theme.palette.mode === "dark" ? alpha("#37C87A", 0.05) : alpha("#37C87A", 0.1),
                       borderColor: alpha("#37C87A", 0.2),
-                      color: theme.palette.mode === "dark" ? "#ece1f4" : "text.primary",
+                      color: theme.palette.mode === "dark" ? theme.palette.text.primary : "text.primary",
                       borderRadius: 4
                     })}
                   >
@@ -316,7 +320,8 @@ export default function LandingPage() {
                     Connect MyAnimeList
                   </Button>
                   <Typography variant="body2" sx={(theme) => ({ 
-                    color: theme.palette.mode === "dark" ? "#7a7282" : "text.secondary" /* outline */ 
+                    // T3 muted — legal/secondary hints
+                    color: theme.palette.mode === "dark" ? theme.palette.text.disabled : "text.secondary"
                   })}>
                     Secure OAuth 2.0 connection.
                   </Typography>

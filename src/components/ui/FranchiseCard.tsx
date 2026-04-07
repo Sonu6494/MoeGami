@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { memo, useState } from "react";
 import ExpandMoreRoundedIcon from "@mui/icons-material/ExpandMoreRounded";
 import MovieCreationRoundedIcon from "@mui/icons-material/MovieCreationRounded";
 import OndemandVideoRoundedIcon from "@mui/icons-material/OndemandVideoRounded";
@@ -130,11 +130,16 @@ function EntryRow({
   const StatusIcon = statusMeta.icon;
 
   return (
-    <Stack
-      direction="row"
-      spacing={1.25}
-      alignItems="center"
-      sx={{ py: 1, borderTop: "1px solid", borderColor: "divider" }}
+    <Box
+      sx={{
+        display: "flex",
+        flexDirection: "row",
+        gap: 1.25,
+        alignItems: "center",
+        py: 1,
+        borderTop: "1px solid",
+        borderColor: "divider"
+      }}
     >
       {/* Status icon */}
       <Box sx={{ color: statusMeta.color, display: "grid", placeItems: "center", flexShrink: 0 }}>
@@ -179,7 +184,7 @@ function EntryRow({
           sx={{ "& .MuiChip-icon": { ml: "6px" } }}
         />
       </Stack>
-    </Stack>
+    </Box>
   );
 }
 
@@ -215,10 +220,14 @@ function OverrideEntryRow({
       sx={(t) => ({
         p: 1.5,
         borderRadius: 2,
-        bgcolor:
-          t.palette.mode === "dark"
-            ? alpha(t.palette.background.default, 0.4)
-            : alpha(t.palette.background.default, 0.5),
+        // Level 2 — nested card sits above the parent card surface
+        bgcolor: t.palette.mode === 'dark'
+          ? '#1d1528'  /* --bg-elevated */
+          : alpha(t.palette.background.default, 0.5),
+        border: '1px solid',
+        borderColor: t.palette.mode === 'dark'
+          ? 'rgba(255,255,255,0.08)'
+          : alpha(t.palette.divider, 0.5),
       })}
     >
       <Stack spacing={1}>
@@ -295,7 +304,7 @@ function OverrideEntryRow({
   );
 }
 
-export default function FranchiseCard({
+export default memo(function FranchiseCard({
   franchise,
   isExpanded,
   onExpand,
@@ -313,20 +322,28 @@ export default function FranchiseCard({
   // FIX: Override panel is hidden by default — power feature, not primary UI
   const [showOverrides, setShowOverrides] = useState(false);
 
+  console.log("RENDER FranchiseCard", franchise.franchise_id); // DEBUG
+
   return (
     <Card
       sx={(t) => ({
         overflow: "hidden",
         borderRadius: 2,
-        border: `1px solid ${alpha(t.palette.divider, 0.3)}`,
-        transition: "box-shadow 0.2s ease, border-color 0.2s ease",
+        border: `1px solid`,
+        borderColor: t.palette.mode === 'dark'
+          ? 'rgba(255,255,255,0.07)'
+          : alpha(t.palette.divider, 0.3),
+        transition: "border-color 0.2s ease",
         // FIX: no translateY — it conflicts with Collapse expand animation
         "&:hover": {
-          boxShadow:
-            t.palette.mode === "dark"
-              ? "0 8px 24px rgba(5,10,20,0.4)"
-              : "0 8px 24px rgba(96,74,227,0.1)",
           borderColor: alpha(t.palette.primary.main, 0.25),
+          // In dark mode, bump border brightness instead of adding shadow
+          ...(t.palette.mode === 'dark' && {
+            borderColor: 'rgba(255,255,255,0.14)',
+          }),
+          boxShadow: t.palette.mode === 'dark'
+            ? 'none'
+            : "0 8px 24px rgba(96,74,227,0.1)",
         },
       })}
     >
@@ -456,93 +473,106 @@ export default function FranchiseCard({
       </Box>
 
       {/* ── Expanded content ── */}
-      <Collapse in={isExpanded} timeout="auto" unmountOnExit>
-        <Divider />
-        <Stack spacing={2.5} sx={{ p: 2.5 }}>
-          {/* Main Timeline */}
-          <Box>
-            <Typography variant="overline" color="primary.main" sx={{ fontWeight: 700 }}>
-              Main Timeline
-            </Typography>
-            <Box mt={0.5}>
-              {franchise.main_timeline.map((entry, i) => (
-                <EntryRow
-                  key={entry.platform_id}
-                  entry={entry}
-                  index={i + 1}
-                  allGroupEntries={allEntries}
-                />
-              ))}
-            </Box>
-          </Box>
-
-          {/* Side Stories */}
-          {franchise.side_stories.length > 0 && (
+      {isExpanded && (
+        <Box sx={{ animation: "0.2s ease-in fade-in" }}>
+          <Divider />
+          <Stack spacing={2.5} sx={{ p: 2.5 }}>
+            {/* Main Timeline */}
             <Box>
-              <Typography variant="overline" color="text.secondary" sx={{ fontWeight: 700 }}>
-                Side Stories
+              <Typography variant="overline" color="primary.main" sx={{ fontWeight: 700 }}>
+                Main Timeline
               </Typography>
               <Box mt={0.5}>
-                {franchise.side_stories.map((entry, i) => (
+                {franchise.main_timeline.map((entry, i) => (
                   <EntryRow
                     key={entry.platform_id}
                     entry={entry}
                     index={i + 1}
                     allGroupEntries={allEntries}
-                    showRelationBadge
                   />
                 ))}
               </Box>
             </Box>
-          )}
 
-          {/* FIX: Override section hidden behind toggle — was always visible */}
-          <Box>
-            <Button
-              size="small"
-              variant="text"
-              color="inherit"
-              startIcon={<TuneRoundedIcon sx={{ fontSize: 16 }} />}
-              onClick={() => setShowOverrides((v) => !v)}
-              sx={{ color: "text.secondary", textTransform: "none", px: 0 }}
-            >
-              {showOverrides ? "Hide grouping overrides" : "Manage grouping"}
-            </Button>
-
-            <Button
-              size="small"
-              variant="text"
-              color="error"
-              onClick={() => onBlacklistFranchise(franchise.franchise_id, franchise.canonical_title)}
-              disabled={blacklistingId === franchise.franchise_id}
-              sx={{ textTransform: "none", px: 0, ml: 2 }}
-            >
-              Ignore franchise
-            </Button>
-
-            <Collapse in={showOverrides} timeout="auto" unmountOnExit>
-              <Stack spacing={1} mt={1.5}>
-                <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
-                  Move entries to a different franchise or give them their own group.
+            {/* Side Stories */}
+            {franchise.side_stories.length > 0 && (
+              <Box>
+                <Typography variant="overline" color="text.secondary" sx={{ fontWeight: 700 }}>
+                  Side Stories
                 </Typography>
-                {allEntries.map((entry) => (
-                  <OverrideEntryRow
-                    key={`override-${entry.platform_id}`}
-                    entry={entry}
-                    currentFranchiseId={franchise.franchise_id}
-                    franchiseOptions={franchiseOptions}
-                    activeOverrideTarget={overrideTargets.get(entry.platform_id) ?? null}
-                    isSaving={savingEntryId === entry.platform_id}
-                    onSaveOverride={onSaveOverride}
-                    onBlacklistEntry={onBlacklistEntry}
-                    isBlacklisting={blacklistingId === entry.platform_id}
-                  />
-                ))}
-              </Stack>
-            </Collapse>
-          </Box>
-        </Stack>
-      </Collapse>
+                <Box mt={0.5}>
+                  {franchise.side_stories.map((entry, i) => (
+                    <EntryRow
+                      key={entry.platform_id}
+                      entry={entry}
+                      index={i + 1}
+                      allGroupEntries={allEntries}
+                      showRelationBadge
+                    />
+                  ))}
+                </Box>
+              </Box>
+            )}
+
+            {/* FIX: Override section hidden behind toggle — was always visible */}
+            <Box>
+              <Button
+                size="small"
+                variant="text"
+                color="inherit"
+                startIcon={<TuneRoundedIcon sx={{ fontSize: 16 }} />}
+                onClick={() => setShowOverrides((v) => !v)}
+                sx={{ color: "text.secondary", textTransform: "none", px: 0 }}
+              >
+                {showOverrides ? "Hide grouping overrides" : "Manage grouping"}
+              </Button>
+
+              <Button
+                size="small"
+                variant="text"
+                color="error"
+                onClick={() => onBlacklistFranchise(franchise.franchise_id, franchise.canonical_title)}
+                disabled={blacklistingId === franchise.franchise_id}
+                sx={{ textTransform: "none", px: 0, ml: 2 }}
+              >
+                Ignore franchise
+              </Button>
+
+              {showOverrides && (
+                <Box sx={{ mt: 1.5, animation: "0.2s ease-in fade-in" }}>
+                  <Stack spacing={1}>
+                    <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
+                      Move entries to a different franchise or give them their own group.
+                    </Typography>
+                    {allEntries.map((entry) => (
+                      <OverrideEntryRow
+                        key={`override-${entry.platform_id}`}
+                        entry={entry}
+                        currentFranchiseId={franchise.franchise_id}
+                        franchiseOptions={franchiseOptions}
+                        activeOverrideTarget={overrideTargets.get(entry.platform_id) ?? null}
+                        isSaving={savingEntryId === entry.platform_id}
+                        onSaveOverride={onSaveOverride}
+                        onBlacklistEntry={onBlacklistEntry}
+                        isBlacklisting={blacklistingId === entry.platform_id}
+                      />
+                    ))}
+                  </Stack>
+                </Box>
+              )}
+            </Box>
+          </Stack>
+        </Box>
+      )}
     </Card>
   );
-}
+}, (prev, next) => {
+  return (
+    prev.isExpanded === next.isExpanded &&
+    prev.franchise === next.franchise &&
+    prev.franchiseOptions === next.franchiseOptions &&
+    prev.overrideTargets === next.overrideTargets &&
+    prev.savingEntryId === next.savingEntryId &&
+    prev.blacklistingId === next.blacklistingId
+  );
+});
